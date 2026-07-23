@@ -292,6 +292,8 @@
           </div>
           <label>Available Players</label>
           <div class="checklist" id="availChecklist"></div>
+          <button class="btn outline small" onclick="renderSuggestedXI()" style="margin-bottom:14px">Suggest XI from Available Players</button>
+          <div id="suggestedXIOutput"></div>
           <label>Selected XI (choose from available)</label>
           <div class="checklist" id="selectedChecklist"></div>
           <div class="field"><label>Selection Notes / Rationale</label><textarea id="sNotes" rows="2" style="width:100%"></textarea></div>
@@ -310,6 +312,7 @@
           <select id="analysisSeasonSelect" onchange="renderAnalysisTables()" style="min-width:220px"></select>
         </div>
         <div class="card"><h3>Batting</h3><div id="battingAnalysis"></div></div>
+        <div class="card"><h3>Best Batting Position — Squad Overview</h3><div id="bestPositionAnalysis"></div></div>
         <div class="card"><h3>Bowling</h3><div id="bowlingAnalysis"></div></div>
         <div class="card"><h3>Fielding</h3><div id="fieldingAnalysis"></div></div>
       </div>
@@ -587,6 +590,91 @@ window.saveSelection = async function(){
   renderAll();
   toast('Selection record saved');
 };
+window.renderSuggestedXI = function(){
+  const availIds = Array.from(document.querySelectorAll('.availplayer:checked')).map(c=>c.value);
+  const el = document.getElementById('suggestedXIOutput');
+  if(availIds.length < 2){ el.innerHTML = '<div class="empty">Tick at least a few available players first.</div>'; return; }
+
+  const stats = availIds.map(id=>{
+    const p = players.find(x=>x.id===id);
+    const bat = battingStatsFor(id);
+    const bowl = bowlingStatsFor(id);
+    const field = fieldingStatsFor(id);
+    const battingRating = bat.innings>0 ? (bat.avg + bat.sr/2) : null;
+    const bowlingRating = bowl.innings>0 ? (bowl.wkts*15 - bowl.econ*10) : null;
+    return {p, bat, bowl, field, battingRating, bowlingRating};
+  });
+
+  // Keeper: prefer role WK-Batter, ranked by fielding impact + batting rating; fallback to best fielder overall
+  let keeper = stats.filter(s=>s.p.role==='WK-Batter')
+    .sort((a,b)=> (b.field.impact + (b.battingRating||0)) - (a.field.impact + (a.battingRating||0)))[0];
+  if(!keeper) keeper = stats.slice().sort((a,b)=>b.field.impact - a.field.impact)[0];
+
+  // Top order: keeper + best batting-rated players (with real batting data), up to 6 total
+  const batterPool = stats.filter(s=>s.p.id!==keeper.p.id && s.battingRating!==null)
+    .sort((a,b)=>b.battingRating-a.battingRating);
+  const topOrder = [keeper, ...batterPool].slice(0,6);
+  const usedIds = new Set(topOrder.map(s=>s.p.id));
+
+  // Bowling options: best bowling-rated players not already picked, fill remaining slots up to 11
+  const bowlerPool = stats.filter(s=>!usedIds.has(s.p.id) && s.bowlingRating!==null)
+    .sort((a,b)=>b.bowlingRating-a.bowlingRating);
+  let xi = [...topOrder];
+  for(const b of bowlerPool){ if(xi.length>=11) break; xi.push(b); usedIds.add(b.p.id); }
+
+  // Fill any remaining slots from whoever's left, by combined rating
+  if(xi.length<11){
+    const remaining = stats.filter(s=>!usedIds.has(s.p.id))
+      .sort((a,b)=>{
+        const scoreA = Math.max(a.battingRating||0,0)+Math.max(a.bowlingRating||0,0)+a.field.impact;
+        const scoreB = Math.max(b.battingRating||0,0)+Math.max(b.bowlingRating||0,0)+b.field.impact;
+        return scoreB-scoreA;
+      });
+    for(const r of remaining){ if(xi.length>=11) break; xi.push(r); usedIds.add(r.p.id); }
+  }
+
+  // Order: batting-capable players first (by battingRating desc), bowling-only tail after, keeper flagged
+  const battingCapable = xi.filter(s=>s.battingRating!==null).sort((a,b)=>b.battingRating-a.battingRating);
+  const bowlingOnly = xi.filter(s=>s.battingRating===null).sort((a,b)=>(b.bowlingRating||0)-(a.bowlingRating||0));
+  const orderedXI = [...battingCapable, ...bowlingOnly];
+
+  const bowlingCount = xi.filter(s=>s.bowlingRating!==null).length;
+
+  let h = `<div class="card">
+    <h3>Suggested XI (${xi.length} of ${availIds.length} available picked)</h3>
+    <div class="sub">Ranked by Batting Rating = Avg + SR÷2, Bowling Rating = (Wkts×15) − (Econ×10), Fielding = career catches/run outs/stumpings. Uses all-time stats across every season logged. This is a data-only starting point — factor in form, matchups, and anything the numbers can't see.</div>
+    <table><tr><th>Order</th><th>Player</th><th>Role</th><th>Best Pos.</th><th>Batting</th><th>Bowling</th><th>Fielding Impact</th></tr>`;
+  orderedXI.forEach((s,i)=>{
+    const bp = bestPositionFor(s.p.id);
+    const keeperTag = s.p.id===keeper.p.id ? ' (WK)' : '';
+    h += `<tr>
+      <td>${i+1}</td>
+      <td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${s.p.id}')">${s.p.name}${keeperTag}</td>
+      <td>${s.p.role}</td>
+      <td>${bp ? '#'+bp.position : '—'}</td>
+      <td>${s.bat.innings>0 ? `${s.bat.runs} runs, avg ${s.bat.avg.toFixed(1)}, SR ${s.bat.sr.toFixed(1)}` : '—'}</td>
+      <td>${s.bowl.innings>0 ? `${s.bowl.wkts} wkts, econ ${s.bowl.econ.toFixed(2)}` : '—'}</td>
+      <td>${s.field.impact}</td>
+    </tr>`;
+  });
+  h += `</table>`;
+  if(bowlingCount < 5){
+    h += `<div class="sub" style="margin-top:10px;color:var(--loss)">Only ${bowlingCount} players with bowling figures on record made this XI — check you have enough overs covered for a full 20.</div>`;
+  }
+  if(xi.length < 11){
+    h += `<div class="sub" style="margin-top:10px;color:var(--loss)">Only ${xi.length} available players total — this isn't a full XI.</div>`;
+  }
+  h += `<button class="btn amber" style="margin-top:10px" onclick='applySuggestedXI(${JSON.stringify(orderedXI.map(s=>s.p.id))})'>Apply to Selected XI Checklist</button>
+  </div>`;
+  el.innerHTML = h;
+};
+
+window.applySuggestedXI = function(ids){
+  renderSelectedChecklist();
+  document.querySelectorAll('.selplayer').forEach(c=>{ c.checked = ids.includes(c.value); });
+  toast('Suggested XI applied — review and adjust before saving');
+};
+
 window.deleteSelection = async function(id){
   selections = selections.filter(s=>s.id!==id);
   await saveSelections(); renderAll();
@@ -669,6 +757,30 @@ function fieldingStatsFor(playerId, matchList){
   const impact = catches*10 + runouts*10 + stumpings*10 - drops*5;
   return {catches, runouts, drops, stumpings, impact};
 }
+function bestPositionFor(playerId, matchList, minInnings){
+  matchList = matchList || matches;
+  minInnings = minInnings || 2;
+  const posMap = {};
+  matchList.forEach(m=>{
+    const perf = m.performances.find(p=>p.playerId===playerId);
+    if(!perf || !perf.batting || perf.batting.status==='dnb' || !perf.batting.position) return;
+    const key = perf.batting.position;
+    if(!posMap[key]) posMap[key] = {innings:0, runs:0, balls:0, dismissals:0};
+    const pm = posMap[key];
+    pm.innings++; pm.runs += perf.batting.runs; pm.balls += perf.batting.balls;
+    if(perf.batting.status==='out') pm.dismissals++;
+  });
+  let best = null;
+  Object.keys(posMap).forEach(pos=>{
+    const pm = posMap[pos];
+    if(pm.innings < minInnings) return;
+    const avg = pm.dismissals>0 ? (pm.runs/pm.dismissals) : pm.runs;
+    const sr = pm.balls>0 ? (pm.runs/pm.balls*100) : 0;
+    const rating = avg + sr/2;
+    if(!best || rating > best.rating) best = {position:+pos, innings:pm.innings, avg, sr, rating};
+  });
+  return best;
+}
 
 function renderSeasonSelect(){
   const sel = document.getElementById('analysisSeasonSelect');
@@ -686,8 +798,20 @@ function currentAnalysisMatches(){
   return matches.filter(m=>getSeasonLabel(m)===val);
 }
 window.renderAnalysisTables = function(){
-  renderBattingAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+  renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
 };
+function renderBestPositionAnalysis(){
+  const el = document.getElementById('bestPositionAnalysis');
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, best: bestPositionFor(p.id, scopedMatches)})).filter(r=>r.best);
+  if(!rows.length){ el.innerHTML = '<div class="empty">No player has 2+ innings at a single position yet within this scope.</div>'; return; }
+  rows.sort((a,b)=>a.best.position-b.best.position);
+  let h = '<table><tr><th>Position</th><th>Player</th><th>Innings There</th><th>Avg</th><th>SR</th></tr>';
+  rows.forEach(r=>{
+    h += `<tr><td>#${r.best.position}</td><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.best.innings}</td><td>${r.best.avg.toFixed(1)}</td><td>${r.best.sr.toFixed(1)}</td></tr>`;
+  });
+  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">Multiple players can share a position here — this shows where each individual has performed best, not a conflict-free lineup. Use Selection & Rotation → Suggest XI for an actual XI with no overlaps.</div>';
+}
 function renderBattingAnalysis(){
   const el = document.getElementById('battingAnalysis');
   const scopedMatches = currentAnalysisMatches();
@@ -891,6 +1015,20 @@ window.renderPlayerProfile = function(playerId){
   let html = `<div class="card"><h3>${p.name} — Role: ${p.role} | ${p.batHand} | Bowls: ${p.bowlType}</h3>
     <div class="sub" style="margin:0">Showing: ${checkedSeasons.length ? checkedSeasons.join(' + ') : 'All seasons combined'}</div></div>`;
 
+  const bestPos = bestPositionFor(playerId, scopedMatches);
+  html += `<div class="card"><h3>Recommended Batting Position</h3>`;
+  if(bestPos){
+    html += `<div class="grid-cards" style="margin-bottom:0">
+      <div class="stat-card"><div class="num">#${bestPos.position}</div><div class="lbl">Best Position (${bestPos.innings} innings, min. 2 required)</div></div>
+      <div class="stat-card"><div class="num">${bestPos.avg.toFixed(1)}</div><div class="lbl">Average there</div></div>
+      <div class="stat-card"><div class="num">${bestPos.sr.toFixed(1)}</div><div class="lbl">Strike Rate there</div></div>
+    </div>
+    <div class="sub" style="margin-top:10px;margin-bottom:0">Ranked by Average + (Strike Rate ÷ 2) across positions with at least 2 innings on record.</div>`;
+  } else {
+    html += `<div class="empty">Not enough innings at any single position yet (need 2+) to recommend one confidently.</div>`;
+  }
+  html += `</div>`;
+
   html += `<div class="card"><h3>Performance by Batting Position</h3>`;
   html += posRows ? `<table><tr><th>Position</th><th>Innings</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th></tr>${posRows}</table>`
     : '<div class="empty">No batting data yet.</div>';
@@ -920,7 +1058,7 @@ window.renderPlayerProfile = function(playerId){
 function renderAll(){
   renderDashboard(); renderRoster(); renderMatchChecklist(); renderMatchLog();
   renderAvailChecklist(); renderRotationTable(); renderSelectionLog();
-  renderSeasonSelect(); renderBattingAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+  renderSeasonSelect(); renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
   renderProfileSelect();
 }
 </script>
