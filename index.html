@@ -304,6 +304,13 @@
           <button class="btn outline" onclick="exportCSVBowling()">Copy Bowling CSV</button>
         </div>
         <div class="card">
+          <h3>Import Data</h3>
+          <div class="sub" style="margin-bottom:10px">Paste a JSON block (players/matches/selections) to bulk-load data — e.g. a full season Claude has prepared for you. Existing players and matches are kept; anything in the pasted data with an ID not already in your ledger gets added. Nothing is overwritten or deleted.</div>
+          <textarea id="importJson" rows="6" style="width:100%" placeholder='{"players":[...],"matches":[...],"selections":[...]}'></textarea>
+          <div style="margin-top:8px"><button class="btn amber" onclick="importSeasonData()">Import</button></div>
+          <div id="importMsg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+        </div>
+        <div class="card">
           <h3>Danger Zone</h3>
           <button class="btn danger" onclick="clearAllData()">Clear All Data</button>
         </div>
@@ -713,6 +720,36 @@ window.exportCSVBowling = function(){
     if(s.innings>0) csv += `${p.name},${s.innings},${s.overs.toFixed(1)},${s.wkts},${s.econ.toFixed(2)},${s.avg.toFixed(1)},${s.maidens}\n`; });
   copyToClipboard(csv, 'Bowling CSV');
 };
+window.importSeasonData = async function(){
+  const raw = document.getElementById('importJson').value.trim();
+  const msgEl = document.getElementById('importMsg');
+  if(!raw){ msgEl.textContent = 'Paste JSON first.'; return; }
+  let data;
+  try{ data = JSON.parse(raw); }
+  catch(e){ msgEl.textContent = 'Could not parse that as JSON — check for missing commas/brackets.'; return; }
+  let addedPlayers=0, addedMatches=0, addedSelections=0;
+  if(Array.isArray(data.players)){
+    data.players.forEach(np=>{
+      if(!players.some(p=>p.id===np.id)){ players.push(np); addedPlayers++; }
+    });
+  }
+  if(Array.isArray(data.matches)){
+    data.matches.forEach(nm=>{
+      if(!matches.some(m=>m.id===nm.id)){ matches.push(nm); addedMatches++; }
+    });
+  }
+  if(Array.isArray(data.selections)){
+    data.selections.forEach(ns=>{
+      if(!selections.some(s=>s.id===ns.id)){ selections.push(ns); addedSelections++; }
+    });
+  }
+  await savePlayers(); await saveMatches(); await saveSelections();
+  renderAll();
+  msgEl.textContent = `Imported: ${addedPlayers} players, ${addedMatches} matches, ${addedSelections} selection records.`;
+  toast('Import complete');
+  document.getElementById('importJson').value='';
+};
+
 window.clearAllData = async function(){
   if(!confirm('This will permanently delete all players, matches, and selection records. Continue?')) return;
   if(!confirm('Are you absolutely sure?')) return;
