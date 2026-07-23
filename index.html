@@ -230,6 +230,10 @@
           <label>Select Player</label>
           <select id="profileSelect" onchange="renderPlayerProfile(this.value)" style="min-width:240px"></select>
         </div>
+        <div class="card">
+          <label>Filter by Season (select one or more to combine — none selected shows every season)</label>
+          <div class="checklist" id="profileSeasonChecklist"></div>
+        </div>
         <div id="profileContent"></div>
       </div>
 
@@ -803,6 +807,18 @@ window.clearAllData = async function(){
   renderAll(); toast('All data cleared');
 };
 
+function renderProfileSeasonChecklist(){
+  const el = document.getElementById('profileSeasonChecklist');
+  if(!el) return;
+  const seasons = getDistinctSeasons();
+  const previouslyChecked = Array.from(el.querySelectorAll('input:checked')).map(c=>c.value);
+  if(!seasons.length){ el.innerHTML = '<div class="empty">No matches logged yet.</div>'; return; }
+  el.innerHTML = seasons.map(s=>{
+    const checked = previouslyChecked.includes(s) ? 'checked' : '';
+    return `<label><input type="checkbox" class="profileSeasonCk" value="${s}" ${checked} onchange="renderPlayerProfile(document.getElementById('profileSelect').value)">${s}</label>`;
+  }).join('');
+}
+
 window.jumpToProfile = function(playerId){
   document.querySelectorAll('.navbtn').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
@@ -818,6 +834,7 @@ function renderProfileSelect(){
   sel.innerHTML = players.slice().sort((a,b)=>a.name.localeCompare(b.name))
     .map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   if(players.some(p=>p.id===current)) sel.value = current;
+  renderProfileSeasonChecklist();
   if(sel.value) renderPlayerProfile(sel.value);
   else document.getElementById('profileContent').innerHTML = '<div class="empty">No players yet.</div>';
 }
@@ -827,11 +844,16 @@ window.renderPlayerProfile = function(playerId){
   const el = document.getElementById('profileContent');
   if(!p){ el.innerHTML = '<div class="empty">Select a player.</div>'; return; }
 
+  const checkedSeasons = Array.from(document.querySelectorAll('.profileSeasonCk:checked')).map(c=>c.value);
+  const scopedMatches = checkedSeasons.length
+    ? matches.filter(m=>checkedSeasons.includes(getSeasonLabel(m)))
+    : matches;
+
   // Build match-ordered logs
   const battingLog = [];
   const bowlingLog = [];
   const fieldingLog = [];
-  matches.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(m=>{
+  scopedMatches.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(m=>{
     const perf = m.performances.find(x=>x.playerId===playerId);
     if(!perf) return;
     if(perf.batting && perf.batting.status && perf.batting.status!=='dnb'){
@@ -866,7 +888,8 @@ window.renderPlayerProfile = function(playerId){
     return `<tr><td class="name">${pos==='—'?'Unspecified':'#'+pos}</td><td>${pm.innings}</td><td>${pm.runs}</td><td>${avg.toFixed(1)}</td><td>${sr.toFixed(1)}</td><td>${pm.hs}</td></tr>`;
   }).join('');
 
-  let html = `<div class="card"><h3>${p.name} — Role: ${p.role} | ${p.batHand} | Bowls: ${p.bowlType}</h3></div>`;
+  let html = `<div class="card"><h3>${p.name} — Role: ${p.role} | ${p.batHand} | Bowls: ${p.bowlType}</h3>
+    <div class="sub" style="margin:0">Showing: ${checkedSeasons.length ? checkedSeasons.join(' + ') : 'All seasons combined'}</div></div>`;
 
   html += `<div class="card"><h3>Performance by Batting Position</h3>`;
   html += posRows ? `<table><tr><th>Position</th><th>Innings</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th></tr>${posRows}</table>`
