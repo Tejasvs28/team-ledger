@@ -170,6 +170,7 @@
     <nav>
       <button class="navbtn active" data-tab="dashboard">Dashboard</button>
       <button class="navbtn" data-tab="players">Players</button>
+      <button class="navbtn" data-tab="profiles">Player Profiles</button>
       <button class="navbtn" data-tab="addmatch">Add Match</button>
       <button class="navbtn" data-tab="matches">Match Log</button>
       <button class="navbtn" data-tab="selection">Selection & Rotation</button>
@@ -219,6 +220,17 @@
           <div style="margin-top:8px"><button class="btn outline" onclick="bulkAddPlayers()">Add All</button></div>
         </div>
         <div class="card"><h3>Roster (<span id="rosterCount">0</span>)</h3><div id="rosterTable"></div></div>
+      </div>
+
+      <!-- PLAYER PROFILES -->
+      <div class="tab" id="tab-profiles">
+        <h2>Player Profiles</h2>
+        <div class="sub">Position-by-position performance and full match log for any player.</div>
+        <div class="card">
+          <label>Select Player</label>
+          <select id="profileSelect" onchange="renderPlayerProfile(this.value)" style="min-width:240px"></select>
+        </div>
+        <div id="profileContent"></div>
       </div>
 
       <!-- ADD MATCH -->
@@ -447,7 +459,8 @@ function renderRoster(){
   let h = '<table><tr><th>Name</th><th>Role</th><th>Bat Hand</th><th>Bowl Type</th><th></th></tr>';
   players.slice().sort((a,b)=>a.name.localeCompare(b.name)).forEach(p=>{
     h += `<tr><td class="name">${p.name}</td><td><span class="badge-role">${p.role}</span></td><td>${p.batHand}</td><td>${p.bowlType}</td>
-      <td><button class="btn danger small" onclick="removePlayer('${p.id}')">Remove</button></td></tr>`;
+      <td><button class="btn outline small" onclick="jumpToProfile('${p.id}')">Profile</button>
+      <button class="btn danger small" onclick="removePlayer('${p.id}')">Remove</button></td></tr>`;
   });
   el.innerHTML = h + '</table>';
 }
@@ -644,7 +657,7 @@ function renderBattingAnalysis(){
   rows.sort((a,b)=>b.s.runs-a.s.runs);
   let h = '<table><tr><th>Player</th><th>Inn</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th><th>50s</th><th>Boundary%</th></tr>';
   rows.forEach(r=>{
-    h += `<tr><td class="name">${r.p.name}</td><td>${r.s.innings}</td><td>${r.s.runs}</td><td>${r.s.avg.toFixed(1)}</td><td>${r.s.sr.toFixed(1)}</td><td>${r.s.highest}</td><td>${r.s.fifties}</td><td>${r.s.boundaryPct.toFixed(0)}%</td></tr>`;
+    h += `<tr><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.s.innings}</td><td>${r.s.runs}</td><td>${r.s.avg.toFixed(1)}</td><td>${r.s.sr.toFixed(1)}</td><td>${r.s.highest}</td><td>${r.s.fifties}</td><td>${r.s.boundaryPct.toFixed(0)}%</td></tr>`;
   });
   el.innerHTML = h + '</table>';
 }
@@ -655,7 +668,7 @@ function renderBowlingAnalysis(){
   rows.sort((a,b)=>b.s.wkts-a.s.wkts);
   let h = '<table><tr><th>Player</th><th>Inn</th><th>Overs</th><th>Wkts</th><th>Econ</th><th>Avg</th><th>Maidens</th></tr>';
   rows.forEach(r=>{
-    h += `<tr><td class="name">${r.p.name}</td><td>${r.s.innings}</td><td>${r.s.overs.toFixed(1)}</td><td>${r.s.wkts}</td><td>${r.s.econ.toFixed(2)}</td><td>${r.s.avg>0?r.s.avg.toFixed(1):'—'}</td><td>${r.s.maidens}</td></tr>`;
+    h += `<tr><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.s.innings}</td><td>${r.s.overs.toFixed(1)}</td><td>${r.s.wkts}</td><td>${r.s.econ.toFixed(2)}</td><td>${r.s.avg>0?r.s.avg.toFixed(1):'—'}</td><td>${r.s.maidens}</td></tr>`;
   });
   el.innerHTML = h + '</table>';
 }
@@ -666,7 +679,7 @@ function renderFieldingAnalysis(){
   rows.sort((a,b)=>b.s.impact-a.s.impact);
   let h = '<table><tr><th>Player</th><th>Catches</th><th>Run Outs</th><th>Stumpings</th><th>Drops</th><th>Impact Score</th></tr>';
   rows.forEach(r=>{
-    h += `<tr><td class="name">${r.p.name}</td><td>${r.s.catches}</td><td>${r.s.runouts}</td><td>${r.s.stumpings}</td><td>${r.s.drops}</td><td>${r.s.impact}</td></tr>`;
+    h += `<tr><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.s.catches}</td><td>${r.s.runouts}</td><td>${r.s.stumpings}</td><td>${r.s.drops}</td><td>${r.s.impact}</td></tr>`;
   });
   el.innerHTML = h + '</table>';
 }
@@ -758,10 +771,102 @@ window.clearAllData = async function(){
   renderAll(); toast('All data cleared');
 };
 
+window.jumpToProfile = function(playerId){
+  document.querySelectorAll('.navbtn').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelector('.navbtn[data-tab="profiles"]').classList.add('active');
+  document.getElementById('tab-profiles').classList.add('active');
+  document.getElementById('profileSelect').value = playerId;
+  renderPlayerProfile(playerId);
+};
+
+function renderProfileSelect(){
+  const sel = document.getElementById('profileSelect');
+  const current = sel.value;
+  sel.innerHTML = players.slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  if(players.some(p=>p.id===current)) sel.value = current;
+  if(sel.value) renderPlayerProfile(sel.value);
+  else document.getElementById('profileContent').innerHTML = '<div class="empty">No players yet.</div>';
+}
+
+window.renderPlayerProfile = function(playerId){
+  const p = players.find(x=>x.id===playerId);
+  const el = document.getElementById('profileContent');
+  if(!p){ el.innerHTML = '<div class="empty">Select a player.</div>'; return; }
+
+  // Build match-ordered logs
+  const battingLog = [];
+  const bowlingLog = [];
+  const fieldingLog = [];
+  matches.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(m=>{
+    const perf = m.performances.find(x=>x.playerId===playerId);
+    if(!perf) return;
+    if(perf.batting && perf.batting.status && perf.batting.status!=='dnb'){
+      const b = perf.batting;
+      const sr = b.balls>0 ? (b.runs/b.balls*100) : 0;
+      battingLog.push({date:m.date, opp:m.opposition, pos:b.position||'—', runs:b.runs, balls:b.balls, fours:b.fours, sixes:b.sixes, sr, status:b.status});
+    }
+    if(perf.bowling && perf.bowling.overs>0){
+      const bw = perf.bowling;
+      const econ = bw.overs>0 ? (bw.runsConceded/bw.overs) : 0;
+      bowlingLog.push({date:m.date, opp:m.opposition, overs:bw.overs, runsCon:bw.runsConceded, wkts:bw.wickets, econ, maidens:bw.maidens});
+    }
+    if(perf.fielding && (perf.fielding.catches+perf.fielding.runouts+perf.fielding.stumpings+perf.fielding.drops)>0){
+      fieldingLog.push({date:m.date, opp:m.opposition, catches:perf.fielding.catches, runouts:perf.fielding.runouts, stumpings:perf.fielding.stumpings, drops:perf.fielding.drops});
+    }
+  });
+
+  // Position breakdown
+  const posMap = {};
+  battingLog.forEach(b=>{
+    const key = b.pos;
+    if(!posMap[key]) posMap[key] = {innings:0, runs:0, balls:0, dismissals:0, hs:0};
+    const pm = posMap[key];
+    pm.innings++; pm.runs+=b.runs; pm.balls+=b.balls;
+    if(b.status==='out') pm.dismissals++;
+    if(b.runs>pm.hs) pm.hs=b.runs;
+  });
+  const posRows = Object.keys(posMap).sort((a,b)=> (a==='—'?99:+a) - (b==='—'?99:+b)).map(pos=>{
+    const pm = posMap[pos];
+    const avg = pm.dismissals>0 ? (pm.runs/pm.dismissals) : pm.runs;
+    const sr = pm.balls>0 ? (pm.runs/pm.balls*100) : 0;
+    return `<tr><td class="name">${pos==='—'?'Unspecified':'#'+pos}</td><td>${pm.innings}</td><td>${pm.runs}</td><td>${avg.toFixed(1)}</td><td>${sr.toFixed(1)}</td><td>${pm.hs}</td></tr>`;
+  }).join('');
+
+  let html = `<div class="card"><h3>${p.name} — Role: ${p.role} | ${p.batHand} | Bowls: ${p.bowlType}</h3></div>`;
+
+  html += `<div class="card"><h3>Performance by Batting Position</h3>`;
+  html += posRows ? `<table><tr><th>Position</th><th>Innings</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th></tr>${posRows}</table>`
+    : '<div class="empty">No batting data yet.</div>';
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Batting Match Log</h3>`;
+  html += battingLog.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Pos</th><th>Runs</th><th>Balls</th><th>4s</th><th>6s</th><th>SR</th><th>Status</th></tr>' +
+    battingLog.map(b=>`<tr><td>${b.date}</td><td class="name">${b.opp}</td><td>${b.pos==='—'?'—':'#'+b.pos}</td><td>${b.runs}</td><td>${b.balls}</td><td>${b.fours}</td><td>${b.sixes}</td><td>${b.sr.toFixed(1)}</td><td>${b.status}</td></tr>`).join('') +
+    '</table>') : '<div class="empty">No batting innings logged.</div>';
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Bowling Match Log</h3>`;
+  html += bowlingLog.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Overs</th><th>Runs</th><th>Wkts</th><th>Econ</th><th>Maidens</th></tr>' +
+    bowlingLog.map(b=>`<tr><td>${b.date}</td><td class="name">${b.opp}</td><td>${b.overs}</td><td>${b.runsCon}</td><td>${b.wkts}</td><td>${b.econ.toFixed(2)}</td><td>${b.maidens}</td></tr>`).join('') +
+    '</table>') : '<div class="empty">No bowling spells logged.</div>';
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Fielding Match Log</h3>`;
+  html += fieldingLog.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Catches</th><th>Run Outs</th><th>Stumpings</th><th>Drops</th></tr>' +
+    fieldingLog.map(f=>`<tr><td>${f.date}</td><td class="name">${f.opp}</td><td>${f.catches}</td><td>${f.runouts}</td><td>${f.stumpings}</td><td>${f.drops}</td></tr>`).join('') +
+    '</table>') : '<div class="empty">No fielding contributions logged.</div>';
+  html += `</div>`;
+
+  el.innerHTML = html;
+};
+
 function renderAll(){
   renderDashboard(); renderRoster(); renderMatchChecklist(); renderMatchLog();
   renderAvailChecklist(); renderRotationTable(); renderSelectionLog();
   renderBattingAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+  renderProfileSelect();
 }
 </script>
 </body>
