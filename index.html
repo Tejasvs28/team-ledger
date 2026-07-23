@@ -240,6 +240,7 @@
         <div class="card">
           <h3>Match Details</h3>
           <div class="row">
+            <div class="field"><label>Season</label><input type="text" id="mSeason" placeholder="e.g. 2026 CricBay Regular Season"></div>
             <div class="field"><label>Date</label><input type="date" id="mDate"></div>
             <div class="field"><label>Opposition</label><input type="text" id="mOpp" placeholder="Opponent name"></div>
             <div class="field"><label>Ground</label><input type="text" id="mGround" placeholder="Ground name"></div>
@@ -299,7 +300,11 @@
       <!-- ANALYSIS -->
       <div class="tab" id="tab-analysis">
         <h2>Player Analysis</h2>
-        <div class="sub">Computed from stored match data.</div>
+        <div class="sub">Defaults to all-time across every match logged. Pick a season below to narrow it down.</div>
+        <div class="card">
+          <label>Season</label>
+          <select id="analysisSeasonSelect" onchange="renderAnalysisTables()" style="min-width:220px"></select>
+        </div>
         <div class="card"><h3>Batting</h3><div id="battingAnalysis"></div></div>
         <div class="card"><h3>Bowling</h3><div id="bowlingAnalysis"></div></div>
         <div class="card"><h3>Fielding</h3><div id="fieldingAnalysis"></div></div>
@@ -317,7 +322,7 @@
         </div>
         <div class="card">
           <h3>Import Data</h3>
-          <div class="sub" style="margin-bottom:10px">Paste a JSON block (players/matches/selections) to bulk-load data — e.g. a full season Claude has prepared for you. Existing players and matches are kept; anything in the pasted data with an ID not already in your ledger gets added. Nothing is overwritten or deleted.</div>
+          <div class="sub" style="margin-bottom:10px">Paste a JSON block (players/matches/selections) to bulk-load or correct data. Records with an ID matching something already in your ledger get updated in place; new IDs get added. Nothing is deleted.</div>
           <textarea id="importJson" rows="6" style="width:100%" placeholder='{"players":[...],"matches":[...],"selections":[...]}'></textarea>
           <div style="margin-top:8px"><button class="btn amber" onclick="importSeasonData()">Import</button></div>
           <div id="importMsg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
@@ -514,6 +519,7 @@ window.saveMatch = async function(){
   });
   matches.push({
     id: uid(), date, opposition: opp,
+    season: document.getElementById('mSeason').value.trim() || null,
     ground: document.getElementById('mGround').value.trim(),
     pitchType: document.getElementById('mPitch').value,
     batFirst: document.getElementById('mBatFirst').value,
@@ -525,7 +531,7 @@ window.saveMatch = async function(){
   });
   await saveMatches();
   document.getElementById('addMatchMsg').textContent = 'Saved match vs '+opp+' on '+date;
-  ['mDate','mOpp','mGround','mOurScore','mTheirScore','mNotes'].forEach(id=>document.getElementById(id).value='');
+  ['mDate','mOpp','mGround','mOurScore','mTheirScore','mNotes','mSeason'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('perfCard').style.display='none';
   document.querySelectorAll('.mplayer').forEach(c=>c.checked=false);
   renderAll();
@@ -584,13 +590,13 @@ window.deleteSelection = async function(id){
 function renderRotationTable(){
   const el = document.getElementById('rotationTable');
   if(!players.length){ el.innerHTML = '<div class="empty">Add players first.</div>'; return; }
-  let h = '<table><tr><th>Player</th><th>Times Available</th><th>Times Selected</th><th>Selection Rate</th><th>Matches Played</th></tr>';
+  if(!selections.length){ el.innerHTML = '<div class="empty">No selection records yet this season — log availability and selected XI above before each match to start building this out.</div>'; return; }
+  let h = '<table><tr><th>Player</th><th>Times Available</th><th>Times Selected</th><th>Selection Rate</th></tr>';
   players.forEach(p=>{
     const avail = selections.filter(s=>s.available.includes(p.id)).length;
     const sel = selections.filter(s=>s.selectedXI.includes(p.id)).length;
     const rate = avail ? Math.round((sel/avail)*100)+'%' : '—';
-    const played = matches.filter(m=>m.performances.some(perf=>perf.playerId===p.id)).length;
-    h += `<tr><td class="name">${p.name}</td><td>${avail}</td><td>${sel}</td><td>${rate}</td><td>${played}</td></tr>`;
+    h += `<tr><td class="name">${p.name}</td><td>${avail}</td><td>${sel}</td><td>${rate}</td></tr>`;
   });
   el.innerHTML = h + '</table>';
 }
@@ -607,9 +613,17 @@ function renderSelectionLog(){
 }
 
 /* ---------------- STATS ENGINE ---------------- */
-function battingStatsFor(playerId){
+function getSeasonLabel(m){
+  return m.season || (m.date ? m.date.slice(0,4) : 'Unspecified');
+}
+function getDistinctSeasons(){
+  const set = new Set(matches.map(getSeasonLabel));
+  return Array.from(set).sort().reverse();
+}
+function battingStatsFor(playerId, matchList){
+  matchList = matchList || matches;
   let runs=0, balls=0, innings=0, dismissals=0, fours=0, sixes=0, highest=0, fifties=0;
-  matches.forEach(m=>{
+  matchList.forEach(m=>{
     const perf = m.performances.find(p=>p.playerId===playerId);
     if(!perf || perf.batting.status==='dnb') return;
     if(perf.batting.balls>0 || perf.batting.runs>0 || perf.batting.status==='out' || perf.batting.status==='notout'){
@@ -625,9 +639,10 @@ function battingStatsFor(playerId){
   const boundaryPct = runs>0 ? ((fours*4+sixes*6)/runs*100) : 0;
   return {innings, runs, balls, dismissals, avg, sr, fours, sixes, highest, fifties, boundaryPct};
 }
-function bowlingStatsFor(playerId){
+function bowlingStatsFor(playerId, matchList){
+  matchList = matchList || matches;
   let overs=0, runsCon=0, wkts=0, maidens=0, innings=0;
-  matches.forEach(m=>{
+  matchList.forEach(m=>{
     const perf = m.performances.find(p=>p.playerId===playerId);
     if(!perf || !perf.bowling || perf.bowling.overs<=0) return;
     innings++; overs += perf.bowling.overs; runsCon += perf.bowling.runsConceded;
@@ -638,9 +653,10 @@ function bowlingStatsFor(playerId){
   const sr = wkts>0 ? (overs*6/wkts) : 0;
   return {innings, overs, runsCon, wkts, maidens, econ, avg, sr};
 }
-function fieldingStatsFor(playerId){
+function fieldingStatsFor(playerId, matchList){
+  matchList = matchList || matches;
   let catches=0, runouts=0, drops=0, stumpings=0;
-  matches.forEach(m=>{
+  matchList.forEach(m=>{
     const perf = m.performances.find(p=>p.playerId===playerId);
     if(!perf || !perf.fielding) return;
     catches += perf.fielding.catches; runouts += perf.fielding.runouts;
@@ -650,10 +666,29 @@ function fieldingStatsFor(playerId){
   return {catches, runouts, drops, stumpings, impact};
 }
 
+function renderSeasonSelect(){
+  const sel = document.getElementById('analysisSeasonSelect');
+  if(!sel) return;
+  const current = sel.value;
+  const seasons = getDistinctSeasons();
+  sel.innerHTML = `<option value="ALL">All Seasons (career)</option>` +
+    seasons.map(s=>`<option value="${s}">${s}</option>`).join('');
+  if(current && (current==='ALL' || seasons.includes(current))) sel.value = current;
+}
+function currentAnalysisMatches(){
+  const sel = document.getElementById('analysisSeasonSelect');
+  const val = sel ? sel.value : 'ALL';
+  if(!val || val==='ALL') return matches;
+  return matches.filter(m=>getSeasonLabel(m)===val);
+}
+window.renderAnalysisTables = function(){
+  renderBattingAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+};
 function renderBattingAnalysis(){
   const el = document.getElementById('battingAnalysis');
-  const rows = players.map(p=>({p, s: battingStatsFor(p.id)})).filter(r=>r.s.innings>0);
-  if(!rows.length){ el.innerHTML='<div class="empty">No batting data logged yet.</div>'; return; }
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, s: battingStatsFor(p.id, scopedMatches)})).filter(r=>r.s.innings>0);
+  if(!rows.length){ el.innerHTML='<div class="empty">No batting data logged for this season.</div>'; return; }
   rows.sort((a,b)=>b.s.runs-a.s.runs);
   let h = '<table><tr><th>Player</th><th>Inn</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th><th>50s</th><th>Boundary%</th></tr>';
   rows.forEach(r=>{
@@ -663,8 +698,9 @@ function renderBattingAnalysis(){
 }
 function renderBowlingAnalysis(){
   const el = document.getElementById('bowlingAnalysis');
-  const rows = players.map(p=>({p, s: bowlingStatsFor(p.id)})).filter(r=>r.s.innings>0);
-  if(!rows.length){ el.innerHTML='<div class="empty">No bowling data logged yet.</div>'; return; }
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, s: bowlingStatsFor(p.id, scopedMatches)})).filter(r=>r.s.innings>0);
+  if(!rows.length){ el.innerHTML='<div class="empty">No bowling data logged for this season.</div>'; return; }
   rows.sort((a,b)=>b.s.wkts-a.s.wkts);
   let h = '<table><tr><th>Player</th><th>Inn</th><th>Overs</th><th>Wkts</th><th>Econ</th><th>Avg</th><th>Maidens</th></tr>';
   rows.forEach(r=>{
@@ -674,8 +710,9 @@ function renderBowlingAnalysis(){
 }
 function renderFieldingAnalysis(){
   const el = document.getElementById('fieldingAnalysis');
-  const rows = players.map(p=>({p, s: fieldingStatsFor(p.id)})).filter(r=>r.s.catches+r.s.runouts+r.s.drops+r.s.stumpings>0);
-  if(!rows.length){ el.innerHTML='<div class="empty">No fielding data logged yet.</div>'; return; }
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, s: fieldingStatsFor(p.id, scopedMatches)})).filter(r=>r.s.catches+r.s.runouts+r.s.drops+r.s.stumpings>0);
+  if(!rows.length){ el.innerHTML='<div class="empty">No fielding data logged for this season.</div>'; return; }
   rows.sort((a,b)=>b.s.impact-a.s.impact);
   let h = '<table><tr><th>Player</th><th>Catches</th><th>Run Outs</th><th>Stumpings</th><th>Drops</th><th>Impact Score</th></tr>';
   rows.forEach(r=>{
@@ -740,25 +777,20 @@ window.importSeasonData = async function(){
   let data;
   try{ data = JSON.parse(raw); }
   catch(e){ msgEl.textContent = 'Could not parse that as JSON — check for missing commas/brackets.'; return; }
-  let addedPlayers=0, addedMatches=0, addedSelections=0;
-  if(Array.isArray(data.players)){
-    data.players.forEach(np=>{
-      if(!players.some(p=>p.id===np.id)){ players.push(np); addedPlayers++; }
+  let added=0, updated=0;
+  function upsert(list, incoming){
+    incoming.forEach(item=>{
+      const idx = list.findIndex(x=>x.id===item.id);
+      if(idx>=0){ list[idx] = item; updated++; }
+      else { list.push(item); added++; }
     });
   }
-  if(Array.isArray(data.matches)){
-    data.matches.forEach(nm=>{
-      if(!matches.some(m=>m.id===nm.id)){ matches.push(nm); addedMatches++; }
-    });
-  }
-  if(Array.isArray(data.selections)){
-    data.selections.forEach(ns=>{
-      if(!selections.some(s=>s.id===ns.id)){ selections.push(ns); addedSelections++; }
-    });
-  }
+  if(Array.isArray(data.players)) upsert(players, data.players);
+  if(Array.isArray(data.matches)) upsert(matches, data.matches);
+  if(Array.isArray(data.selections)) upsert(selections, data.selections);
   await savePlayers(); await saveMatches(); await saveSelections();
   renderAll();
-  msgEl.textContent = `Imported: ${addedPlayers} players, ${addedMatches} matches, ${addedSelections} selection records.`;
+  msgEl.textContent = `Import complete: ${added} new records added, ${updated} existing records updated.`;
   toast('Import complete');
   document.getElementById('importJson').value='';
 };
@@ -865,7 +897,7 @@ window.renderPlayerProfile = function(playerId){
 function renderAll(){
   renderDashboard(); renderRoster(); renderMatchChecklist(); renderMatchLog();
   renderAvailChecklist(); renderRotationTable(); renderSelectionLog();
-  renderBattingAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+  renderSeasonSelect(); renderBattingAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
   renderProfileSelect();
 }
 </script>
