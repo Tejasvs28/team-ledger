@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CricBay Team Ledger — View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pitch:#1B4332; --cream:#F0EAD8; --card:#FAFAF7; --ink:#1A1A1A;
+    --willow:#C08552; --amber:#E8A33D; --line:#D8D0BC; --win:#2D6A4F; --loss:#9E2A2B; --muted:#6B6455;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:'Inter',sans-serif;}
+  h1,h2,h3{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.02em;}
+  .banner{background:#0f2a1c;color:#cfe0d5;text-align:center;padding:6px;font-size:12px;letter-spacing:0.06em;}
+  .scoreboard{
+    background:linear-gradient(180deg,var(--pitch) 0%, #143c29 100%); color:var(--cream); padding:22px 28px;
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;border-bottom:4px solid var(--amber);
+  }
+  .scoreboard h1{font-size:26px;margin:0;color:var(--cream);}
+  .scoreboard .season{font-size:12px;color:var(--amber);letter-spacing:0.15em;}
+  .flip-stats{display:flex;gap:10px;}
+  .flip{background:#0f2a1c;border:1px solid #2d6a4f;border-radius:4px;padding:8px 14px;text-align:center;min-width:64px;}
+  .flip .num{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--amber);}
+  .flip .lbl{font-size:9px;letter-spacing:0.12em;color:#b9c9bf;text-transform:uppercase;margin-top:2px;}
+  .layout{display:flex;min-height:calc(100vh - 120px);}
+  nav{width:190px;background:var(--pitch);flex-shrink:0;padding:18px 0;}
+  nav button{
+    display:block;width:100%;text-align:left;padding:12px 22px;background:none;border:none;
+    color:#cfe0d5;font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;
+    cursor:pointer;border-left:3px solid transparent;
+  }
+  nav button:hover{background:#12302380;color:#fff;}
+  nav button.active{background:#0f2a1c;color:var(--amber);border-left:3px solid var(--amber);}
+  main{flex:1;padding:26px 32px;overflow-x:auto;}
+  .tab{display:none;} .tab.active{display:block;}
+  section h2{font-size:20px;color:var(--pitch);margin:0 0 4px 0;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:18px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:18px;margin-bottom:18px;}
+  .card h3{font-size:14px;color:var(--pitch);margin:0 0 12px 0;border-bottom:1px solid var(--line);padding-bottom:8px;}
+  .grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px;}
+  .stat-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--willow);border-radius:6px;padding:14px 16px;}
+  .stat-card .num{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;color:var(--pitch);}
+  .stat-card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{background:var(--pitch);color:var(--cream);text-align:left;padding:8px 10px;font-family:'Oswald',sans-serif;font-weight:500;letter-spacing:0.03em;font-size:11px;text-transform:uppercase;}
+  td{padding:7px 10px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;}
+  td.name{font-family:'Inter',sans-serif;font-weight:600;}
+  tr:nth-child(even) td{background:#f5f1e6;}
+  .pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-family:'Oswald',sans-serif;letter-spacing:0.04em;}
+  .pill.win{background:#d7ead9;color:var(--win);} .pill.loss{background:#f5d6d6;color:var(--loss);} .pill.tie{background:#fdeecb;color:#8a6300;}
+  .empty{color:var(--muted);font-style:italic;padding:20px;text-align:center;border:1px dashed var(--line);border-radius:6px;}
+  select{font-family:'Inter',sans-serif;padding:7px 9px;border:1px solid var(--line);border-radius:4px;background:#fff;font-size:13px;color:var(--ink);}
+  label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);display:block;margin-bottom:4px;}
+  .checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;margin-bottom:10px;}
+  .checklist label{display:flex;align-items:center;gap:6px;text-transform:none;font-size:13px;color:var(--ink);letter-spacing:0;background:#fff;border:1px solid var(--line);border-radius:4px;padding:6px 8px;}
+  .checklist input{margin:0;}
+  @media(max-width:800px){
+    .layout{flex-direction:column;}
+    nav{width:100%;display:flex;overflow-x:auto;padding:8px;}
+    nav button{width:auto;white-space:nowrap;border-left:none;border-bottom:3px solid transparent;}
+    nav button.active{border-left:none;border-bottom:3px solid var(--amber);}
+    main{padding:16px;}
+  }
+</style>
+</head>
+<body>
+
+<div class="banner">READ-ONLY VIEW — no sign-in required. To edit, use the team admin link.</div>
+<div class="scoreboard">
+  <div><h1>Team Ledger</h1><span class="season">CRICBAY &middot; VIEW ONLY</span></div>
+  <div class="flip-stats" id="headerStats"></div>
+</div>
+
+<div class="layout">
+  <nav>
+    <button class="navbtn active" data-tab="dashboard">Dashboard</button>
+    <button class="navbtn" data-tab="matches">Match Log</button>
+    <button class="navbtn" data-tab="profiles">Player Profiles</button>
+    <button class="navbtn" data-tab="analysis">Analysis</button>
+  </nav>
+  <main>
+    <div class="tab active" id="tab-dashboard">
+      <h2>Season Dashboard</h2>
+      <div class="sub">Season record and top performers.</div>
+      <div class="grid-cards" id="dashCards"></div>
+      <div class="card"><h3>Top Run Scorers</h3><div id="dashTopBat"></div></div>
+      <div class="card"><h3>Top Wicket Takers</h3><div id="dashTopBowl"></div></div>
+      <div class="card"><h3>Recent Matches</h3><div id="dashRecent"></div></div>
+    </div>
+
+    <div class="tab" id="tab-matches">
+      <h2>Match Log</h2>
+      <div class="sub">Every match logged this season.</div>
+      <div id="matchLogTable"></div>
+    </div>
+
+    <div class="tab" id="tab-profiles">
+      <h2>Player Profiles</h2>
+      <div class="sub">Position-by-position performance and full match log for any player.</div>
+      <div class="card">
+        <label>Select Player</label>
+        <select id="profileSelect" onchange="renderPlayerProfile(this.value)" style="min-width:240px"></select>
+      </div>
+      <div class="card">
+        <label>Filter by Season (select one or more to combine — none selected shows every season)</label>
+        <div class="checklist" id="profileSeasonChecklist"></div>
+      </div>
+      <div id="profileContent"></div>
+    </div>
+
+    <div class="tab" id="tab-analysis">
+      <h2>Player Analysis</h2>
+      <div class="sub">Defaults to all-time across every match logged. Pick a season below to narrow it down.</div>
+      <div class="card">
+        <label>Season</label>
+        <select id="analysisSeasonSelect" onchange="renderAnalysisTables()" style="min-width:220px"></select>
+      </div>
+      <div class="card"><h3>Batting</h3><div id="battingAnalysis"></div></div>
+      <div class="card"><h3>Best Batting Position — Squad Overview</h3><div id="bestPositionAnalysis"></div></div>
+      <div class="card"><h3>Bowling</h3><div id="bowlingAnalysis"></div></div>
+      <div class="card"><h3>Fielding</h3><div id="fieldingAnalysis"></div></div>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+const firebaseConfig = {
+  apiKey: "AIzaSyDWR5cP1fA-YSUF7LxIW-f_EQedTEX_qww",
+  authDomain: "vikrant-cricket.firebaseapp.com",
+  projectId: "vikrant-cricket",
+  storageBucket: "vikrant-cricket.firebasestorage.app",
+  messagingSenderId: "143147101163",
+  appId: "1:143147101163:web:764f1c2b4065f392c207ae"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const COLLECTION = 'cricbay_team';
+
+let players = [];
+let matches = [];
+
+async function loadAll(){
+  try{ const pDoc = await getDoc(doc(db, COLLECTION, 'players')); players = pDoc.exists() ? pDoc.data().list : []; }catch(e){ players = []; }
+  try{ const mDoc = await getDoc(doc(db, COLLECTION, 'matches')); matches = mDoc.exists() ? mDoc.data().list : []; }catch(e){ matches = []; }
+  renderAll();
+}
+
+document.querySelectorAll('.navbtn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.navbtn').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById('tab-'+b.dataset.tab).classList.add('active');
+    renderAll();
+  });
+});
+
+/* ---------------- STATS ENGINE (mirrors the admin app) ---------------- */
+function getSeasonLabel(m){ return m.season || (m.date ? m.date.slice(0,4) : 'Unspecified'); }
+function getDistinctSeasons(){ return Array.from(new Set(matches.map(getSeasonLabel))).sort().reverse(); }
+
+function battingStatsFor(playerId, matchList){
+  matchList = matchList || matches;
+  let runs=0, balls=0, innings=0, dismissals=0, fours=0, sixes=0, highest=0, fifties=0;
+  matchList.forEach(m=>{
+    const perf = m.performances.find(p=>p.playerId===playerId);
+    if(!perf || perf.batting.status==='dnb') return;
+    if(perf.batting.balls>0 || perf.batting.runs>0 || perf.batting.status==='out' || perf.batting.status==='notout'){
+      innings++; runs += perf.batting.runs; balls += perf.batting.balls;
+      fours += perf.batting.fours; sixes += perf.batting.sixes;
+      if(perf.batting.status==='out') dismissals++;
+      if(perf.batting.runs>highest) highest=perf.batting.runs;
+      if(perf.batting.runs>=50) fifties++;
+    }
+  });
+  const avg = dismissals>0 ? (runs/dismissals) : (innings>0? runs : 0);
+  const sr = balls>0 ? (runs/balls*100) : 0;
+  const boundaryPct = runs>0 ? ((fours*4+sixes*6)/runs*100) : 0;
+  return {innings, runs, balls, dismissals, avg, sr, fours, sixes, highest, fifties, boundaryPct};
+}
+function bowlingStatsFor(playerId, matchList){
+  matchList = matchList || matches;
+  let overs=0, runsCon=0, wkts=0, maidens=0, innings=0;
+  matchList.forEach(m=>{
+    const perf = m.performances.find(p=>p.playerId===playerId);
+    if(!perf || !perf.bowling || perf.bowling.overs<=0) return;
+    innings++; overs += perf.bowling.overs; runsCon += perf.bowling.runsConceded;
+    wkts += perf.bowling.wickets; maidens += perf.bowling.maidens;
+  });
+  const econ = overs>0 ? (runsCon/overs) : 0;
+  const avg = wkts>0 ? (runsCon/wkts) : 0;
+  const sr = wkts>0 ? (overs*6/wkts) : 0;
+  return {innings, overs, runsCon, wkts, maidens, econ, avg, sr};
+}
+function fieldingStatsFor(playerId, matchList){
+  matchList = matchList || matches;
+  let catches=0, runouts=0, drops=0, stumpings=0;
+  matchList.forEach(m=>{
+    const perf = m.performances.find(p=>p.playerId===playerId);
+    if(!perf || !perf.fielding) return;
+    catches += perf.fielding.catches; runouts += perf.fielding.runouts;
+    drops += perf.fielding.drops; stumpings += perf.fielding.stumpings;
+  });
+  const impact = catches*10 + runouts*10 + stumpings*10 - drops*5;
+  return {catches, runouts, drops, stumpings, impact};
+}
+function bestPositionFor(playerId, matchList, k){
+  matchList = matchList || matches; k = k || 3;
+  const career = battingStatsFor(playerId, matchList);
+  if(career.innings===0) return null;
+  const careerRating = career.avg + career.sr/2;
+  const posMap = {};
+  matchList.forEach(m=>{
+    const perf = m.performances.find(p=>p.playerId===playerId);
+    if(!perf || !perf.batting || perf.batting.status==='dnb' || !perf.batting.position) return;
+    const key = perf.batting.position;
+    if(!posMap[key]) posMap[key] = {innings:0, runs:0, balls:0, dismissals:0};
+    const pm = posMap[key];
+    pm.innings++; pm.runs += perf.batting.runs; pm.balls += perf.batting.balls;
+    if(perf.batting.status==='out') pm.dismissals++;
+  });
+  if(!Object.keys(posMap).length) return null;
+  let best = null;
+  Object.keys(posMap).forEach(pos=>{
+    const pm = posMap[pos]; const n = pm.innings;
+    const avg = pm.dismissals>0 ? (pm.runs/pm.dismissals) : pm.runs;
+    const sr = pm.balls>0 ? (pm.runs/pm.balls*100) : 0;
+    const positionRating = avg + sr/2;
+    const shrunkRating = (n/(n+k))*positionRating + (k/(n+k))*careerRating;
+    const confidence = n>=6 ? 'High' : (n>=3 ? 'Medium' : 'Low');
+    if(!best || shrunkRating > best.shrunkRating) best = {position:+pos, innings:n, avg, sr, positionRating, shrunkRating, confidence};
+  });
+  return best;
+}
+
+/* ---------------- DASHBOARD ---------------- */
+function renderDashboard(){
+  const wins = matches.filter(m=>m.result==='Win').length;
+  const losses = matches.filter(m=>m.result==='Loss').length;
+  const ties = matches.filter(m=>m.result==='Tie'||m.result==='No Result').length;
+  document.getElementById('headerStats').innerHTML = `
+    <div class="flip"><div class="num">${matches.length}</div><div class="lbl">Played</div></div>
+    <div class="flip"><div class="num">${wins}</div><div class="lbl">Won</div></div>
+    <div class="flip"><div class="num">${losses}</div><div class="lbl">Lost</div></div>
+    <div class="flip"><div class="num">${players.length}</div><div class="lbl">Squad</div></div>`;
+  document.getElementById('dashCards').innerHTML = `
+    <div class="stat-card"><div class="num">${matches.length}</div><div class="lbl">Matches Played</div></div>
+    <div class="stat-card"><div class="num">${wins}-${losses}${ties?('-'+ties):''}</div><div class="lbl">Win-Loss Record</div></div>
+    <div class="stat-card"><div class="num">${players.length}</div><div class="lbl">Squad Size</div></div>`;
+  const bat = players.map(p=>({p, s:battingStatsFor(p.id)})).filter(r=>r.s.innings>0).sort((a,b)=>b.s.runs-a.s.runs).slice(0,5);
+  document.getElementById('dashTopBat').innerHTML = bat.length ? ('<table><tr><th>Player</th><th>Runs</th><th>Avg</th><th>SR</th></tr>'+
+    bat.map(r=>`<tr><td class="name">${r.p.name}</td><td>${r.s.runs}</td><td>${r.s.avg.toFixed(1)}</td><td>${r.s.sr.toFixed(1)}</td></tr>`).join('')+'</table>')
+    : '<div class="empty">No batting data yet.</div>';
+  const bowl = players.map(p=>({p, s:bowlingStatsFor(p.id)})).filter(r=>r.s.innings>0).sort((a,b)=>b.s.wkts-a.s.wkts).slice(0,5);
+  document.getElementById('dashTopBowl').innerHTML = bowl.length ? ('<table><tr><th>Player</th><th>Wkts</th><th>Econ</th></tr>'+
+    bowl.map(r=>`<tr><td class="name">${r.p.name}</td><td>${r.s.wkts}</td><td>${r.s.econ.toFixed(2)}</td></tr>`).join('')+'</table>')
+    : '<div class="empty">No bowling data yet.</div>';
+  const recent = matches.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+  document.getElementById('dashRecent').innerHTML = recent.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Result</th><th>Score</th></tr>'+
+    recent.map(m=>`<tr><td>${m.date}</td><td class="name">${m.opposition}</td><td><span class="pill ${m.result==='Win'?'win':(m.result==='Loss'?'loss':'tie')}">${m.result}</span></td><td>${m.ourScore} vs ${m.theirScore}</td></tr>`).join('')+'</table>')
+    : '<div class="empty">No matches logged yet.</div>';
+}
+
+/* ---------------- MATCH LOG ---------------- */
+function renderMatchLog(){
+  const el = document.getElementById('matchLogTable');
+  if(!matches.length){ el.innerHTML = '<div class="empty">No matches logged yet.</div>'; return; }
+  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Ground</th><th>Result</th><th>Score</th></tr>';
+  matches.slice().sort((a,b)=>b.date.localeCompare(a.date)).forEach(m=>{
+    const pillClass = m.result==='Win'?'win':(m.result==='Loss'?'loss':'tie');
+    h += `<tr><td>${m.date}</td><td class="name">${m.opposition}</td><td>${m.ground||'—'}</td>
+      <td><span class="pill ${pillClass}">${m.result}</span></td><td>${m.ourScore||'—'} vs ${m.theirScore||'—'}</td></tr>`;
+  });
+  el.innerHTML = h + '</table>';
+}
+
+/* ---------------- PLAYER PROFILES ---------------- */
+window.jumpToProfile = function(playerId){
+  document.querySelectorAll('.navbtn').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelector('.navbtn[data-tab="profiles"]').classList.add('active');
+  document.getElementById('tab-profiles').classList.add('active');
+  document.getElementById('profileSelect').value = playerId;
+  renderPlayerProfile(playerId);
+};
+function renderProfileSeasonChecklist(){
+  const el = document.getElementById('profileSeasonChecklist');
+  if(!el) return;
+  const seasons = getDistinctSeasons();
+  const previouslyChecked = Array.from(el.querySelectorAll('input:checked')).map(c=>c.value);
+  if(!seasons.length){ el.innerHTML = '<div class="empty">No matches logged yet.</div>'; return; }
+  el.innerHTML = seasons.map(s=>{
+    const checked = previouslyChecked.includes(s) ? 'checked' : '';
+    return `<label><input type="checkbox" class="profileSeasonCk" value="${s}" ${checked} onchange="renderPlayerProfile(document.getElementById('profileSelect').value)">${s}</label>`;
+  }).join('');
+}
+function renderProfileSelect(){
+  const sel = document.getElementById('profileSelect');
+  const current = sel.value;
+  sel.innerHTML = players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  if(players.some(p=>p.id===current)) sel.value = current;
+  renderProfileSeasonChecklist();
+  if(sel.value) renderPlayerProfile(sel.value);
+  else document.getElementById('profileContent').innerHTML = '<div class="empty">No players yet.</div>';
+}
+window.renderPlayerProfile = function(playerId){
+  const p = players.find(x=>x.id===playerId);
+  const el = document.getElementById('profileContent');
+  if(!p){ el.innerHTML = '<div class="empty">Select a player.</div>'; return; }
+  const checkedSeasons = Array.from(document.querySelectorAll('.profileSeasonCk:checked')).map(c=>c.value);
+  const scopedMatches = checkedSeasons.length ? matches.filter(m=>checkedSeasons.includes(getSeasonLabel(m))) : matches;
+
+  const battingLog = [], bowlingLog = [], fieldingLog = [];
+  scopedMatches.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(m=>{
+    const perf = m.performances.find(x=>x.playerId===playerId);
+    if(!perf) return;
+    if(perf.batting && perf.batting.status && perf.batting.status!=='dnb'){
+      const b = perf.batting; const sr = b.balls>0 ? (b.runs/b.balls*100) : 0;
+      battingLog.push({date:m.date, opp:m.opposition, pos:b.position||'—', runs:b.runs, balls:b.balls, fours:b.fours, sixes:b.sixes, sr, status:b.status});
+    }
+    if(perf.bowling && perf.bowling.overs>0){
+      const bw = perf.bowling; const econ = bw.overs>0 ? (bw.runsConceded/bw.overs) : 0;
+      bowlingLog.push({date:m.date, opp:m.opposition, overs:bw.overs, runsCon:bw.runsConceded, wkts:bw.wickets, econ, maidens:bw.maidens});
+    }
+    if(perf.fielding && (perf.fielding.catches+perf.fielding.runouts+perf.fielding.stumpings+perf.fielding.drops)>0){
+      fieldingLog.push({date:m.date, opp:m.opposition, catches:perf.fielding.catches, runouts:perf.fielding.runouts, stumpings:perf.fielding.stumpings, drops:perf.fielding.drops});
+    }
+  });
+
+  const posMap = {};
+  battingLog.forEach(b=>{
+    const key = b.pos;
+    if(!posMap[key]) posMap[key] = {innings:0, runs:0, balls:0, dismissals:0, hs:0};
+    const pm = posMap[key]; pm.innings++; pm.runs+=b.runs; pm.balls+=b.balls;
+    if(b.status==='out') pm.dismissals++;
+    if(b.runs>pm.hs) pm.hs=b.runs;
+  });
+  const posRows = Object.keys(posMap).sort((a,b)=> (a==='—'?99:+a) - (b==='—'?99:+b)).map(pos=>{
+    const pm = posMap[pos]; const avg = pm.dismissals>0 ? (pm.runs/pm.dismissals) : pm.runs; const sr = pm.balls>0 ? (pm.runs/pm.balls*100) : 0;
+    return `<tr><td class="name">${pos==='—'?'Unspecified':'#'+pos}</td><td>${pm.innings}</td><td>${pm.runs}</td><td>${avg.toFixed(1)}</td><td>${sr.toFixed(1)}</td><td>${pm.hs}</td></tr>`;
+  }).join('');
+
+  let html = `<div class="card"><h3>${p.name} — Role: ${p.role} | ${p.batHand} | Bowls: ${p.bowlType}</h3>
+    <div class="sub" style="margin:0">Showing: ${checkedSeasons.length ? checkedSeasons.join(' + ') : 'All seasons combined'}</div></div>`;
+
+  const bestPos = bestPositionFor(playerId, scopedMatches);
+  html += `<div class="card"><h3>Recommended Batting Position</h3>`;
+  if(bestPos){
+    const confColor = bestPos.confidence==='High' ? 'var(--win)' : (bestPos.confidence==='Medium' ? 'var(--amber)' : 'var(--loss)');
+    html += `<div class="grid-cards" style="margin-bottom:0">
+      <div class="stat-card"><div class="num">#${bestPos.position}</div><div class="lbl">Recommended Position</div></div>
+      <div class="stat-card" style="border-left-color:${confColor}"><div class="num" style="color:${confColor}">${bestPos.confidence}</div><div class="lbl">Confidence (${bestPos.innings} inn. there)</div></div>
+      <div class="stat-card"><div class="num">${bestPos.avg.toFixed(1)}</div><div class="lbl">Raw Avg at this position</div></div>
+      <div class="stat-card"><div class="num">${bestPos.sr.toFixed(1)}</div><div class="lbl">Raw SR at this position</div></div>
+    </div>
+    <div class="sub" style="margin-top:10px;margin-bottom:0">Blends position-specific performance with career performance, weighted by innings there (shrinkage). Confidence: Low = 1-2 innings, Medium = 3-5, High = 6+.</div>`;
+  } else { html += `<div class="empty">No batting position data logged yet for this player.</div>`; }
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Performance by Batting Position</h3>`;
+  html += posRows ? `<table><tr><th>Position</th><th>Innings</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th></tr>${posRows}</table>` : '<div class="empty">No batting data yet.</div>';
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Batting Match Log</h3>`;
+  html += battingLog.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Pos</th><th>Runs</th><th>Balls</th><th>4s</th><th>6s</th><th>SR</th><th>Status</th></tr>' +
+    battingLog.map(b=>`<tr><td>${b.date}</td><td class="name">${b.opp}</td><td>${b.pos==='—'?'—':'#'+b.pos}</td><td>${b.runs}</td><td>${b.balls}</td><td>${b.fours}</td><td>${b.sixes}</td><td>${b.sr.toFixed(1)}</td><td>${b.status}</td></tr>`).join('') +
+    '</table>') : '<div class="empty">No batting innings logged.</div>';
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Bowling Match Log</h3>`;
+  html += bowlingLog.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Overs</th><th>Runs</th><th>Wkts</th><th>Econ</th><th>Maidens</th></tr>' +
+    bowlingLog.map(b=>`<tr><td>${b.date}</td><td class="name">${b.opp}</td><td>${b.overs}</td><td>${b.runsCon}</td><td>${b.wkts}</td><td>${b.econ.toFixed(2)}</td><td>${b.maidens}</td></tr>`).join('') +
+    '</table>') : '<div class="empty">No bowling spells logged.</div>';
+  html += `</div>`;
+
+  html += `<div class="card"><h3>Fielding Match Log</h3>`;
+  html += fieldingLog.length ? ('<table><tr><th>Date</th><th>Opposition</th><th>Catches</th><th>Run Outs</th><th>Stumpings</th><th>Drops</th></tr>' +
+    fieldingLog.map(f=>`<tr><td>${f.date}</td><td class="name">${f.opp}</td><td>${f.catches}</td><td>${f.runouts}</td><td>${f.stumpings}</td><td>${f.drops}</td></tr>`).join('') +
+    '</table>') : '<div class="empty">No fielding contributions logged.</div>';
+  html += `</div>`;
+
+  el.innerHTML = html;
+};
+
+/* ---------------- ANALYSIS ---------------- */
+function renderSeasonSelect(){
+  const sel = document.getElementById('analysisSeasonSelect');
+  if(!sel) return;
+  const current = sel.value;
+  const seasons = getDistinctSeasons();
+  sel.innerHTML = `<option value="ALL">All Seasons (career)</option>` + seasons.map(s=>`<option value="${s}">${s}</option>`).join('');
+  if(current && (current==='ALL' || seasons.includes(current))) sel.value = current;
+}
+function currentAnalysisMatches(){
+  const sel = document.getElementById('analysisSeasonSelect');
+  const val = sel ? sel.value : 'ALL';
+  if(!val || val==='ALL') return matches;
+  return matches.filter(m=>getSeasonLabel(m)===val);
+}
+window.renderAnalysisTables = function(){
+  renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+};
+function renderBattingAnalysis(){
+  const el = document.getElementById('battingAnalysis');
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, s: battingStatsFor(p.id, scopedMatches)})).filter(r=>r.s.innings>0);
+  if(!rows.length){ el.innerHTML='<div class="empty">No batting data logged for this season.</div>'; return; }
+  rows.sort((a,b)=>b.s.runs-a.s.runs);
+  let h = '<table><tr><th>Player</th><th>Inn</th><th>Runs</th><th>Avg</th><th>SR</th><th>HS</th><th>50s</th><th>Boundary%</th></tr>';
+  rows.forEach(r=>{
+    h += `<tr><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.s.innings}</td><td>${r.s.runs}</td><td>${r.s.avg.toFixed(1)}</td><td>${r.s.sr.toFixed(1)}</td><td>${r.s.highest}</td><td>${r.s.fifties}</td><td>${r.s.boundaryPct.toFixed(0)}%</td></tr>`;
+  });
+  el.innerHTML = h + '</table>';
+}
+function renderBestPositionAnalysis(){
+  const el = document.getElementById('bestPositionAnalysis');
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, best: bestPositionFor(p.id, scopedMatches)})).filter(r=>r.best);
+  if(!rows.length){ el.innerHTML = '<div class="empty">No batting data logged yet within this scope.</div>'; return; }
+  rows.sort((a,b)=>a.best.position-b.best.position);
+  let h = '<table><tr><th>Position</th><th>Player</th><th>Confidence</th><th>Inn. There</th><th>Raw Avg</th><th>Raw SR</th></tr>';
+  rows.forEach(r=>{
+    const confColor = r.best.confidence==='High' ? 'var(--win)' : (r.best.confidence==='Medium' ? '#8a6300' : 'var(--loss)');
+    h += `<tr><td>#${r.best.position}</td><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td style="color:${confColor};font-family:'Inter',sans-serif;font-weight:600">${r.best.confidence}</td><td>${r.best.innings}</td><td>${r.best.avg.toFixed(1)}</td><td>${r.best.sr.toFixed(1)}</td></tr>`;
+  });
+  el.innerHTML = h + '</table>';
+}
+function renderBowlingAnalysis(){
+  const el = document.getElementById('bowlingAnalysis');
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, s: bowlingStatsFor(p.id, scopedMatches)})).filter(r=>r.s.innings>0);
+  if(!rows.length){ el.innerHTML='<div class="empty">No bowling data logged for this season.</div>'; return; }
+  rows.sort((a,b)=>b.s.wkts-a.s.wkts);
+  let h = '<table><tr><th>Player</th><th>Inn</th><th>Overs</th><th>Wkts</th><th>Econ</th><th>Avg</th><th>Maidens</th></tr>';
+  rows.forEach(r=>{
+    h += `<tr><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.s.innings}</td><td>${r.s.overs.toFixed(1)}</td><td>${r.s.wkts}</td><td>${r.s.econ.toFixed(2)}</td><td>${r.s.avg>0?r.s.avg.toFixed(1):'—'}</td><td>${r.s.maidens}</td></tr>`;
+  });
+  el.innerHTML = h + '</table>';
+}
+function renderFieldingAnalysis(){
+  const el = document.getElementById('fieldingAnalysis');
+  const scopedMatches = currentAnalysisMatches();
+  const rows = players.map(p=>({p, s: fieldingStatsFor(p.id, scopedMatches)})).filter(r=>r.s.catches+r.s.runouts+r.s.drops+r.s.stumpings>0);
+  if(!rows.length){ el.innerHTML='<div class="empty">No fielding data logged for this season.</div>'; return; }
+  rows.sort((a,b)=>b.s.impact-a.s.impact);
+  let h = '<table><tr><th>Player</th><th>Catches</th><th>Run Outs</th><th>Stumpings</th><th>Drops</th><th>Impact Score</th></tr>';
+  rows.forEach(r=>{
+    h += `<tr><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.s.catches}</td><td>${r.s.runouts}</td><td>${r.s.stumpings}</td><td>${r.s.drops}</td><td>${r.s.impact}</td></tr>`;
+  });
+  el.innerHTML = h + '</table>';
+}
+
+function renderAll(){
+  renderDashboard(); renderMatchLog(); renderSeasonSelect();
+  renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
+  renderProfileSelect();
+}
+
+loadAll();
+</script>
+</body>
+</html>
