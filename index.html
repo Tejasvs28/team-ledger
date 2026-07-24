@@ -256,7 +256,7 @@
             <div class="field"><label>Opposition</label><input type="text" id="mOpp" placeholder="Opponent name"></div>
             <div class="field"><label>Ground</label><input type="text" id="mGround" placeholder="Ground name"></div>
             <div class="field"><label>Pitch Type</label>
-              <select id="mPitch"><option>Turf/Mat (High-scoring, par 110-130)</option><option>Baseball diamond (Low-scoring, par 80-90)</option></select>
+              <select id="mPitch"><option value="">— Select pitch type (required) —</option><option>Turf/Mat (High-scoring, par 110-130)</option><option>Baseball diamond (Low-scoring, par 80-90)</option></select>
             </div>
           </div>
           <div class="row">
@@ -362,15 +362,14 @@
           <select id="mvpSeasonSelect" onchange="renderMVPTab()" style="min-width:220px"></select>
         </div>
         <div class="card">
-          <h3>How This Is Calculated</h3>
+          <h3>How This Is Calculated (revised)</h3>
           <div class="sub" style="margin-bottom:0">
-            Every batting/bowling performance is weighted <strong>1.3× in wins, 0.8× in losses, 1.0× in ties</strong> before computing rates — this rewards contributing to wins and discounts stats padded in losses.<br><br>
-            <strong>Batting (35%)</strong>: win-weighted Average + Strike Rate÷2, scaled relative to the best in your squad.<br>
-            <strong>Bowling (35%)</strong>: win-weighted (Wickets×15 − Economy×10), scaled relative to the best in your squad.<br>
-            <strong>Fielding (10%)</strong>: catches/run-outs/stumpings impact score, scaled relative to the best.<br>
-            <strong>All-Round Bonus (10%)</strong>: the <em>lower</em> of your batting and bowling scores — rewards being genuinely strong in both, not just one.<br>
-            <strong>Team Impact (10%)</strong>: % of the team's wins where this player had a "big contribution" (30+ runs, 2+ wickets, or 2+ fielding contributions) — a proxy for match-winning impact, since ball-by-ball pressure isn't in the scorecards.<br><br>
-            <strong>What this can't see:</strong> opponent strength, phase-specific bowling (powerplay vs death), how difficult a catch was, or true ball-by-ball pressure. Scores are relative to your own squad this season, not a universal rating.
+            <strong>Batting (35%)</strong>: Average + pitch-adjusted Strike Rate÷2, scaled relative to the best in your squad. Average uses your real runs; Strike Rate is adjusted so a baseball-diamond innings (naturally lower-scoring) is compared fairly against a turf/matting innings (naturally higher-scoring) — e.g. SR 65 on a baseball diamond scales to roughly SR 92 in adjusted terms.<br><br>
+            <strong>Bowling (35%)</strong>: Wickets×15 − pitch-adjusted Economy×10, same reasoning applied symmetrically — containing batters is harder on a high-scoring turf pitch than a low-scoring baseball one.<br><br>
+            <strong>Fielding (10%)</strong>: catches/run-outs/stumpings impact. Wicketkeepers' catches are discounted 50% here — most caught-behind dismissals go to whoever's keeping by default, so raw catch counts overstate a keeper's fielding skill relative to an outfielder's. Run outs and stumpings are unaffected. There's a separate Best Wicketkeeper category below so keepers get judged against each other, not against outfielders.<br><br>
+            <strong>All-Round Bonus (10%)</strong>: the <em>lower</em> of your batting and bowling scores — rewards being genuinely strong in both, not just one.<br><br>
+            <strong>Team Impact (10%)</strong>: % of the team's wins where this player had a "big contribution" (30+ runs, 2+ wickets, or 2+ fielding contributions). This — not a blanket win/loss multiplier — is deliberately the <em>only</em> place win/loss result affects the score. An excellent performance in a losing effort is still scored as excellent; it just doesn't earn Team Impact points the way the same performance in a win would.<br><br>
+            <strong>What this still can't see:</strong> opponent strength, phase-specific bowling (powerplay vs death), how difficult a specific catch was, or true ball-by-ball pressure. Scores are relative to your own squad this season, not a universal rating.
           </div>
         </div>
         <div class="card"><h3>Top 10 MVP Candidates</h3><div id="mvpTopTable"></div></div>
@@ -594,6 +593,9 @@ window.saveMatch = async function(){
   const date = document.getElementById('mDate').value;
   const opp = document.getElementById('mOpp').value.trim();
   if(!date || !opp){ toast('Enter date and opposition'); return; }
+  if(!document.getElementById('mPitch').value){
+    if(!confirm('No pitch type selected — this match will get no pitch adjustment in MVP/position rankings (treated as neutral). Save anyway without it?')) return;
+  }
   const newMatchId = uid();
   const rows = document.querySelectorAll('#perfTable tr[data-pid]');
   const performances = [];
@@ -1325,32 +1327,43 @@ window.renderPlayerProfile = function(playerId){
 };
 
 /* ---------------- MVP AWARD ---------------- */
+const PITCH_PAR = {
+  'Turf/Mat (High-scoring, par 110-130)': 120,
+  'Baseball diamond (Low-scoring, par 80-90)': 85
+};
+const REFERENCE_PAR = 120; // turf/matting used as the baseline; adjust everything else relative to it
+function pitchFactor(match){
+  const par = PITCH_PAR[match && match.pitchType];
+  return par ? (REFERENCE_PAR / par) : 1;
+}
+
 function computeMVPTable(matchList){
   matchList = matchList || matches;
   const raw = players.map(p=>{
-    let wRuns=0, balls=0, dismissals=0, inningsBat=0;
-    let wWkts=0, oversNum=0, runsCon=0, inningsBowl=0;
+    let runs=0, balls=0, dismissals=0, inningsBat=0, srAdjRuns=0;
+    let wkts=0, oversNum=0, runsCon=0, econAdjRunsCon=0, inningsBowl=0;
     let winsPlayed=0, bigContribWins=0;
+    const isKeeper = p.role === 'WK-Batter';
 
     matchList.forEach(m=>{
       const perf = m.performances.find(x=>x.playerId===p.id);
       if(!perf) return;
       const isWin = m.result==='Win';
-      const isLoss = m.result==='Loss';
       if(isWin) winsPlayed++;
+      const pf = pitchFactor(m);
       let bigContrib = false;
 
       if(perf.batting && perf.batting.status && perf.batting.status!=='dnb'){
         const r = perf.batting.runs, b = perf.batting.balls;
-        const mult = isWin ? 1.3 : (isLoss ? 0.8 : 1.0);
-        wRuns += r*mult; balls += b; inningsBat++;
+        runs += r; balls += b; inningsBat++;
+        srAdjRuns += r*pf; // pitch-adjusted for the Strike Rate component only — average stays true to actual runs
         if(perf.batting.status==='out') dismissals++;
         if(r>=30) bigContrib = true;
       }
       if(perf.bowling && perf.bowling.overs>0){
         const w = perf.bowling.wickets;
-        const mult = isWin ? 1.3 : (isLoss ? 0.8 : 1.0);
-        wWkts += w*mult; oversNum += perf.bowling.overs; runsCon += perf.bowling.runsConceded; inningsBowl++;
+        wkts += w; oversNum += perf.bowling.overs; runsCon += perf.bowling.runsConceded; inningsBowl++;
+        econAdjRunsCon += perf.bowling.runsConceded*pf; // same logic applied to economy, symmetric with strike rate
         if(w>=2) bigContrib = true;
       }
       if(perf.fielding){
@@ -1360,19 +1373,26 @@ function computeMVPTable(matchList){
       if(isWin && bigContrib) bigContribWins++;
     });
 
-    const avg = dismissals>0 ? wRuns/dismissals : (inningsBat>0 ? wRuns : 0);
-    const sr = balls>0 ? wRuns/balls*100 : 0;
+    const avg = dismissals>0 ? runs/dismissals : (inningsBat>0 ? runs : 0);
+    const sr = balls>0 ? srAdjRuns/balls*100 : 0; // pitch-adjusted
     const battingRatingRaw = inningsBat>0 ? (avg + sr/2) : null;
 
-    const econ = oversNum>0 ? runsCon/oversNum : 0;
-    const bowlingRatingRaw = inningsBowl>0 ? (wWkts*15 - econ*10) : null;
+    const econ = oversNum>0 ? runsCon/oversNum : 0; // true economy, for display
+    const econAdj = oversNum>0 ? econAdjRunsCon/oversNum : 0; // pitch-adjusted, for ranking
+    const bowlingRatingRaw = inningsBowl>0 ? (wkts*15 - econAdj*10) : null;
 
     const field = fieldingStatsFor(p.id, matchList);
-    const fieldingRatingRaw = (field.catches+field.runouts+field.stumpings+field.drops)>0 ? field.impact : null;
+    // Keeper catches are discounted 50% for ranking purposes — most straightforward caught-behind
+    // dismissals default to the keeper regardless of skill; stumpings and run outs stay fully credited.
+    const catchCredit = isKeeper ? field.catches*0.5 : field.catches;
+    const fieldingImpactAdj = catchCredit*10 + field.runouts*10 + field.stumpings*10 - field.drops*5;
+    const fieldingRatingRaw = (field.catches+field.runouts+field.stumpings+field.drops)>0 ? fieldingImpactAdj : null;
+
+    const keeperRatingRaw = isKeeper && (field.catches+field.stumpings)>0 ? (field.stumpings*15 + field.catches*5) : null;
 
     const clutchWinRate = winsPlayed>0 ? bigContribWins/winsPlayed : null;
 
-    return {p, inningsBat, inningsBowl, avg, sr, econ, wkts:wWkts, battingRatingRaw, bowlingRatingRaw, fieldingRatingRaw, clutchWinRate, winsPlayed, bigContribWins};
+    return {p, isKeeper, inningsBat, inningsBowl, avg, sr, econ, wkts, battingRatingRaw, bowlingRatingRaw, fieldingRatingRaw, keeperRatingRaw, clutchWinRate, winsPlayed, bigContribWins};
   });
 
   function minMax(arr, key){
@@ -1475,7 +1495,8 @@ window.renderMVPTab = function(){
   const bestBatsman = table.filter(r=>r.inningsBat>0).sort((a,b)=>b.battingScore-a.battingScore)[0];
   const bestBowler = table.filter(r=>r.inningsBowl>0).sort((a,b)=>b.bowlingScore-a.bowlingScore)[0];
   const bestAllRounder = table.filter(r=>r.allRounderScore>0).sort((a,b)=>b.allRounderScore-a.allRounderScore)[0];
-  const bestFielder = table.filter(r=>r.fieldingRatingRaw!==null).sort((a,b)=>b.fieldingScore-a.fieldingScore)[0];
+  const bestFielder = table.filter(r=>r.fieldingRatingRaw!==null && !r.isKeeper).sort((a,b)=>b.fieldingScore-a.fieldingScore)[0];
+  const bestKeeper = table.filter(r=>r.keeperRatingRaw!==null).sort((a,b)=>b.keeperRatingRaw-a.keeperRatingRaw)[0];
   const biggestMatchWinner = table.filter(r=>r.winsPlayed>0).sort((a,b)=>b.teamImpactScore-a.teamImpactScore)[0];
   const mostImproved = computeMostImproved(scoped);
 
@@ -1484,10 +1505,11 @@ window.renderMVPTab = function(){
     return `<div class="stat-card"><div class="num" style="font-size:17px;cursor:pointer" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</div><div class="lbl">${label}</div><div class="sub" style="margin:6px 0 0 0">${detail}</div></div>`;
   }
   highlightEl.innerHTML = `<div class="grid-cards" style="margin-bottom:0">
-    ${highlightCard('Best Batsman', bestBatsman, bestBatsman?`Avg ${bestBatsman.avg.toFixed(1)}, SR ${bestBatsman.sr.toFixed(1)} (win-weighted)`:'')}
-    ${highlightCard('Best Bowler', bestBowler, bestBowler?`${bestBowler.wkts.toFixed(1)} wkts (win-weighted), econ ${bestBowler.econ.toFixed(2)}`:'')}
+    ${highlightCard('Best Batsman', bestBatsman, bestBatsman?`Avg ${bestBatsman.avg.toFixed(1)}, SR ${bestBatsman.sr.toFixed(1)} (pitch-adjusted)`:'')}
+    ${highlightCard('Best Bowler', bestBowler, bestBowler?`${bestBowler.wkts} wkts, econ ${bestBowler.econ.toFixed(2)} (pitch-adjusted for ranking)`:'')}
     ${highlightCard('Best All-Rounder', bestAllRounder, bestAllRounder?'Strong on both bat and ball relative to squad':'')}
-    ${highlightCard('Best Fielder', bestFielder, bestFielder?`Fielding impact score ${bestFielder.fieldingRatingRaw}`:'')}
+    ${highlightCard('Best Fielder (non-keeper)', bestFielder, bestFielder?`Catches/run-outs impact score ${bestFielder.fieldingRatingRaw}`:'')}
+    ${highlightCard('Best Wicketkeeper', bestKeeper, bestKeeper?'Ranked by stumpings, then keeper catches':'')}
     ${highlightCard('Most Improved', mostImproved, mostImproved?`Rating rose from ${mostImproved.r1.toFixed(1)} to ${mostImproved.r2.toFixed(1)} (1st half of season vs 2nd)`:'Not enough matches yet to split into two halves')}
     ${highlightCard('Biggest Match Winner', biggestMatchWinner, biggestMatchWinner?`Big contribution in ${biggestMatchWinner.bigContribWins} of ${biggestMatchWinner.winsPlayed} wins played`:'')}
   </div>`;
