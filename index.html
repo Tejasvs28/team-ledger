@@ -757,9 +757,14 @@ function fieldingStatsFor(playerId, matchList){
   const impact = catches*10 + runouts*10 + stumpings*10 - drops*5;
   return {catches, runouts, drops, stumpings, impact};
 }
-function bestPositionFor(playerId, matchList, minInnings){
+function bestPositionFor(playerId, matchList, k){
   matchList = matchList || matches;
-  minInnings = minInnings || 2;
+  k = k || 3; // shrinkage constant: innings needed before position data outweighs career data
+
+  const career = battingStatsFor(playerId, matchList);
+  if(career.innings===0) return null;
+  const careerRating = career.avg + career.sr/2;
+
   const posMap = {};
   matchList.forEach(m=>{
     const perf = m.performances.find(p=>p.playerId===playerId);
@@ -770,14 +775,20 @@ function bestPositionFor(playerId, matchList, minInnings){
     pm.innings++; pm.runs += perf.batting.runs; pm.balls += perf.batting.balls;
     if(perf.batting.status==='out') pm.dismissals++;
   });
+  if(!Object.keys(posMap).length) return null;
+
   let best = null;
   Object.keys(posMap).forEach(pos=>{
     const pm = posMap[pos];
-    if(pm.innings < minInnings) return;
+    const n = pm.innings;
     const avg = pm.dismissals>0 ? (pm.runs/pm.dismissals) : pm.runs;
     const sr = pm.balls>0 ? (pm.runs/pm.balls*100) : 0;
-    const rating = avg + sr/2;
-    if(!best || rating > best.rating) best = {position:+pos, innings:pm.innings, avg, sr, rating};
+    const positionRating = avg + sr/2;
+    const shrunkRating = (n/(n+k))*positionRating + (k/(n+k))*careerRating;
+    const confidence = n>=6 ? 'High' : (n>=3 ? 'Medium' : 'Low');
+    if(!best || shrunkRating > best.shrunkRating){
+      best = {position:+pos, innings:n, avg, sr, positionRating, shrunkRating, confidence};
+    }
   });
   return best;
 }
@@ -804,13 +815,14 @@ function renderBestPositionAnalysis(){
   const el = document.getElementById('bestPositionAnalysis');
   const scopedMatches = currentAnalysisMatches();
   const rows = players.map(p=>({p, best: bestPositionFor(p.id, scopedMatches)})).filter(r=>r.best);
-  if(!rows.length){ el.innerHTML = '<div class="empty">No player has 2+ innings at a single position yet within this scope.</div>'; return; }
+  if(!rows.length){ el.innerHTML = '<div class="empty">No batting data logged yet within this scope.</div>'; return; }
   rows.sort((a,b)=>a.best.position-b.best.position);
-  let h = '<table><tr><th>Position</th><th>Player</th><th>Innings There</th><th>Avg</th><th>SR</th></tr>';
+  let h = '<table><tr><th>Position</th><th>Player</th><th>Confidence</th><th>Inn. There</th><th>Raw Avg</th><th>Raw SR</th></tr>';
   rows.forEach(r=>{
-    h += `<tr><td>#${r.best.position}</td><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td>${r.best.innings}</td><td>${r.best.avg.toFixed(1)}</td><td>${r.best.sr.toFixed(1)}</td></tr>`;
+    const confColor = r.best.confidence==='High' ? 'var(--win)' : (r.best.confidence==='Medium' ? '#8a6300' : 'var(--loss)');
+    h += `<tr><td>#${r.best.position}</td><td class="name" style="cursor:pointer;color:var(--pitch);text-decoration:underline" onclick="jumpToProfile('${r.p.id}')">${r.p.name}</td><td style="color:${confColor};font-family:'Inter',sans-serif;font-weight:600">${r.best.confidence}</td><td>${r.best.innings}</td><td>${r.best.avg.toFixed(1)}</td><td>${r.best.sr.toFixed(1)}</td></tr>`;
   });
-  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">Multiple players can share a position here — this shows where each individual has performed best, not a conflict-free lineup. Use Selection & Rotation → Suggest XI for an actual XI with no overlaps.</div>';
+  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">Recommendations are blended with career form when position-specific innings are few (see a player\'s profile for the full explanation). Multiple players can share a position here — this shows where each individual has performed best, not a conflict-free lineup. Use Selection & Rotation → Suggest XI for an actual XI with no overlaps.</div>';
 }
 function renderBattingAnalysis(){
   const el = document.getElementById('battingAnalysis');
@@ -1018,14 +1030,16 @@ window.renderPlayerProfile = function(playerId){
   const bestPos = bestPositionFor(playerId, scopedMatches);
   html += `<div class="card"><h3>Recommended Batting Position</h3>`;
   if(bestPos){
+    const confColor = bestPos.confidence==='High' ? 'var(--win)' : (bestPos.confidence==='Medium' ? 'var(--amber)' : 'var(--loss)');
     html += `<div class="grid-cards" style="margin-bottom:0">
-      <div class="stat-card"><div class="num">#${bestPos.position}</div><div class="lbl">Best Position (${bestPos.innings} innings, min. 2 required)</div></div>
-      <div class="stat-card"><div class="num">${bestPos.avg.toFixed(1)}</div><div class="lbl">Average there</div></div>
-      <div class="stat-card"><div class="num">${bestPos.sr.toFixed(1)}</div><div class="lbl">Strike Rate there</div></div>
+      <div class="stat-card"><div class="num">#${bestPos.position}</div><div class="lbl">Recommended Position</div></div>
+      <div class="stat-card" style="border-left-color:${confColor}"><div class="num" style="color:${confColor}">${bestPos.confidence}</div><div class="lbl">Confidence (${bestPos.innings} inn. there)</div></div>
+      <div class="stat-card"><div class="num">${bestPos.avg.toFixed(1)}</div><div class="lbl">Raw Avg at this position</div></div>
+      <div class="stat-card"><div class="num">${bestPos.sr.toFixed(1)}</div><div class="lbl">Raw SR at this position</div></div>
     </div>
-    <div class="sub" style="margin-top:10px;margin-bottom:0">Ranked by Average + (Strike Rate ÷ 2) across positions with at least 2 innings on record.</div>`;
+    <div class="sub" style="margin-top:10px;margin-bottom:0">Blends position-specific performance with career performance, weighted by how many innings they've had there (shrinkage) — so a single big score doesn't get overweighted. Confidence: Low = 1-2 innings there, Medium = 3-5, High = 6+.</div>`;
   } else {
-    html += `<div class="empty">Not enough innings at any single position yet (need 2+) to recommend one confidently.</div>`;
+    html += `<div class="empty">No batting position data logged yet for this player.</div>`;
   }
   html += `</div>`;
 
