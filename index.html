@@ -174,6 +174,7 @@
       <button class="navbtn" data-tab="addmatch">Add Match</button>
       <button class="navbtn" data-tab="matches">Match Log</button>
       <button class="navbtn" data-tab="selection">Selection & Rotation</button>
+      <button class="navbtn" data-tab="duties">Match Duties</button>
       <button class="navbtn" data-tab="analysis">Analysis</button>
       <button class="navbtn" data-tab="data">Data / Export</button>
     </nav>
@@ -303,6 +304,27 @@
         <div class="card"><h3>Past Selection Records</h3><div id="selectionLog"></div></div>
       </div>
 
+      <!-- MATCH DUTIES -->
+      <div class="tab" id="tab-duties">
+        <h2>Match Duties</h2>
+        <div class="sub">Ground setup needs 3 people, water needs 1. Assign before the match, tick off who actually did it after.</div>
+        <div class="card">
+          <h3>Assign Duties for a Match</h3>
+          <div class="row">
+            <div class="field"><label>Date</label><input type="date" id="dDate"></div>
+            <div class="field"><label>Opposition</label><input type="text" id="dOpp" placeholder="Opponent name"></div>
+          </div>
+          <button class="btn outline small" onclick="suggestFairDuty()" style="margin-bottom:14px">Suggest Fair Assignment</button>
+          <label>Ground Setup (pick 3)</label>
+          <div class="checklist" id="groundSetupChecklist"></div>
+          <div class="field"><label>Water Duty (pick 1)</label><select id="waterSelect"><option value="">— none —</option></select></div>
+          <button class="btn" onclick="saveDuty()">Save Duty Assignment</button>
+          <span id="dutyMsg" style="margin-left:12px;color:var(--muted);font-size:12px;"></span>
+        </div>
+        <div class="card"><h3>Duties Fairness</h3><div id="dutiesFairnessTable"></div></div>
+        <div class="card"><h3>Past Duty Records</h3><div id="dutiesLog"></div></div>
+      </div>
+
       <!-- ANALYSIS -->
       <div class="tab" id="tab-analysis">
         <h2>Player Analysis</h2>
@@ -396,6 +418,7 @@ onAuthStateChanged(auth, user=>{
 let players = [];
 let matches = [];
 let selections = [];
+let duties = [];
 const COLLECTION = 'cricbay_team';
 
 async function loadAll(){
@@ -412,12 +435,17 @@ async function loadAll(){
     const sDoc = await getDoc(doc(db, COLLECTION, 'selections'));
     selections = sDoc.exists() ? sDoc.data().list : [];
   }catch(e){ selections = []; }
+  try{
+    const dDoc = await getDoc(doc(db, COLLECTION, 'duties'));
+    duties = dDoc.exists() ? dDoc.data().list : [];
+  }catch(e){ duties = []; }
   setSync('Synced');
   renderAll();
 }
 async function savePlayers(){ setSync('Saving…'); await setDoc(doc(db, COLLECTION, 'players'), {list: players}); setSync('Synced'); }
 async function saveMatches(){ setSync('Saving…'); await setDoc(doc(db, COLLECTION, 'matches'), {list: matches}); setSync('Synced'); }
 async function saveSelections(){ setSync('Saving…'); await setDoc(doc(db, COLLECTION, 'selections'), {list: selections}); setSync('Synced'); }
+async function saveDuties(){ setSync('Saving…'); await setDoc(doc(db, COLLECTION, 'duties'), {list: duties}); setSync('Synced'); }
 function setSync(msg){ const el=document.getElementById('syncStatus'); if(el) el.textContent = msg; }
 
 function toast(msg){
@@ -674,6 +702,142 @@ window.applySuggestedXI = function(ids){
   document.querySelectorAll('.selplayer').forEach(c=>{ c.checked = ids.includes(c.value); });
   toast('Suggested XI applied — review and adjust before saving');
 };
+
+/* ---------------- MATCH DUTIES ---------------- */
+function renderDutyPickers(){
+  const gsEl = document.getElementById('groundSetupChecklist');
+  const waterEl = document.getElementById('waterSelect');
+  if(!gsEl || !waterEl) return;
+  if(!players.length){ gsEl.innerHTML = '<div class="empty">Add players first.</div>'; return; }
+  gsEl.innerHTML = players.map(p=>`<label><input type="checkbox" class="groundSetupCk" value="${p.id}">${p.name}</label>`).join('');
+  waterEl.innerHTML = '<option value="">— none —</option>' + players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+}
+window.suggestFairDuty = function(){
+  if(!players.length){ toast('No players in roster'); return; }
+  const gsCounts = players.map(p=>({
+    p, count: duties.filter(d=>d.groundSetup.some(g=>actualPerformerId(g)===p.id)).length
+  }));
+  gsCounts.sort((a,b)=> a.count - b.count || a.p.name.localeCompare(b.p.name));
+  const gsPick = gsCounts.slice(0,3).map(x=>x.p.id);
+
+  const waterCounts = players.filter(p=>!gsPick.includes(p.id)).map(p=>({
+    p, count: duties.filter(d=>d.water && actualPerformerId(d.water)===p.id).length
+  }));
+  waterCounts.sort((a,b)=> a.count - b.count || a.p.name.localeCompare(b.p.name));
+  const waterPick = waterCounts.length ? waterCounts[0].p.id : null;
+
+  document.querySelectorAll('.groundSetupCk').forEach(c=>{ c.checked = gsPick.includes(c.value); });
+  const waterSel = document.getElementById('waterSelect');
+  if(waterSel) waterSel.value = waterPick || '';
+
+  const gsNames = gsPick.map(id=>playerName(id)).join(', ');
+  document.getElementById('dutyMsg').textContent = `Suggested: ${gsNames} (ground setup), ${waterPick?playerName(waterPick):'—'} (water) — ranked by fewest duties actually performed (assigned-but-subbed-out doesn't count as done). Review before saving.`;
+  toast('Fair assignment suggested');
+};
+window.saveDuty = async function(){
+  const date = document.getElementById('dDate').value;
+  const opp = document.getElementById('dOpp').value.trim();
+  if(!date || !opp){ document.getElementById('dutyMsg').textContent = 'Enter date and opposition'; return; }
+  const gsIds = Array.from(document.querySelectorAll('.groundSetupCk:checked')).map(c=>c.value);
+  const waterId = document.getElementById('waterSelect').value;
+  if(gsIds.length !== 3){
+    document.getElementById('dutyMsg').textContent = `Warning: ${gsIds.length} people picked for ground setup (usually 3) — saved anyway.`;
+  } else {
+    document.getElementById('dutyMsg').textContent = 'Duty assignment saved.';
+  }
+  duties.push({
+    id: uid(), date, opposition: opp,
+    groundSetup: gsIds.map(id=>({playerId:id, done:false, substituteId:null})),
+    water: waterId ? {playerId:waterId, done:false, substituteId:null} : null
+  });
+  await saveDuties();
+  document.getElementById('dDate').value=''; document.getElementById('dOpp').value='';
+  document.querySelectorAll('.groundSetupCk').forEach(c=>c.checked=false);
+  document.getElementById('waterSelect').value='';
+  renderAll();
+  toast('Duty assignment saved');
+};
+function actualPerformerId(entry){
+  if(!entry || !entry.done) return null;
+  return entry.substituteId || entry.playerId;
+}
+window.updateGroundSetupStatus = async function(dutyId, assignedPlayerId, selectedValue){
+  const d = duties.find(x=>x.id===dutyId);
+  if(!d) return;
+  const entry = d.groundSetup.find(g=>g.playerId===assignedPlayerId);
+  if(!entry) return;
+  if(selectedValue===''){ entry.done=false; entry.substituteId=null; }
+  else if(selectedValue===assignedPlayerId){ entry.done=true; entry.substituteId=null; }
+  else { entry.done=true; entry.substituteId=selectedValue; }
+  await saveDuties(); renderAll();
+};
+window.updateWaterStatus = async function(dutyId, assignedPlayerId, selectedValue){
+  const d = duties.find(x=>x.id===dutyId);
+  if(!d || !d.water) return;
+  if(selectedValue===''){ d.water.done=false; d.water.substituteId=null; }
+  else if(selectedValue===assignedPlayerId){ d.water.done=true; d.water.substituteId=null; }
+  else { d.water.done=true; d.water.substituteId=selectedValue; }
+  await saveDuties(); renderAll();
+};
+window.deleteDuty = async function(id){
+  if(!confirm('Delete this duty record?')) return;
+  duties = duties.filter(d=>d.id!==id);
+  await saveDuties(); renderAll();
+};
+function playerName(id){ const p = players.find(x=>x.id===id); return p ? p.name : 'Unknown'; }
+function renderDutiesLog(){
+  const el = document.getElementById('dutiesLog');
+  if(!duties.length){ el.innerHTML = '<div class="empty">No duty records yet.</div>'; return; }
+  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Ground Setup</th><th>Water</th><th></th></tr>';
+  duties.slice().sort((a,b)=>b.date.localeCompare(a.date)).forEach(d=>{
+    const gsHtml = d.groundSetup.map(g=>{
+      const otherOptions = players.filter(p=>p.id!==g.playerId)
+        .map(p=>`<option value="${p.id}" ${g.substituteId===p.id?'selected':''}>Done by ${p.name} instead</option>`).join('');
+      return `<div style="margin-bottom:6px;font-family:'Inter',sans-serif;font-weight:normal;">
+        <span style="font-weight:600">${playerName(g.playerId)}</span>
+        <select style="margin-left:6px;font-size:12px;padding:3px 5px" onchange="updateGroundSetupStatus('${d.id}','${g.playerId}',this.value)">
+          <option value="" ${!g.done?'selected':''}>Not done</option>
+          <option value="${g.playerId}" ${g.done && !g.substituteId ? 'selected':''}>Done (as assigned)</option>
+          ${otherOptions}
+        </select>
+      </div>`;
+    }).join('');
+    let waterHtml = '—';
+    if(d.water){
+      const otherOptions = players.filter(p=>p.id!==d.water.playerId)
+        .map(p=>`<option value="${p.id}" ${d.water.substituteId===p.id?'selected':''}>Done by ${p.name} instead</option>`).join('');
+      waterHtml = `<div style="font-family:'Inter',sans-serif;font-weight:normal;">
+        <span style="font-weight:600">${playerName(d.water.playerId)}</span>
+        <select style="margin-left:6px;font-size:12px;padding:3px 5px" onchange="updateWaterStatus('${d.id}','${d.water.playerId}',this.value)">
+          <option value="" ${!d.water.done?'selected':''}>Not done</option>
+          <option value="${d.water.playerId}" ${d.water.done && !d.water.substituteId ? 'selected':''}>Done (as assigned)</option>
+          ${otherOptions}
+        </select>
+      </div>`;
+    }
+    h += `<tr><td>${d.date}</td><td class="name">${d.opposition}</td><td>${gsHtml||'—'}</td><td>${waterHtml}</td>
+      <td><button class="btn danger small" onclick="deleteDuty('${d.id}')">Delete</button></td></tr>`;
+  });
+  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">If someone other than the assigned person actually did the duty, pick "Done by [name] instead" — that person gets credit in the fairness table below, not the person originally assigned.</div>';
+}
+function renderDutiesFairness(){
+  const el = document.getElementById('dutiesFairnessTable');
+  if(!players.length){ el.innerHTML = '<div class="empty">Add players first.</div>'; return; }
+  if(!duties.length){ el.innerHTML = '<div class="empty">No duty records yet.</div>'; return; }
+  let h = '<table><tr><th>Player</th><th>Ground Setup Assigned</th><th>Ground Setup Done (incl. subbing in)</th><th>Water Assigned</th><th>Water Done (incl. subbing in)</th><th>Stepped In For Others</th></tr>';
+  players.forEach(p=>{
+    const gsAssigned = duties.filter(d=>d.groundSetup.some(g=>g.playerId===p.id)).length;
+    const gsDone = duties.filter(d=>d.groundSetup.some(g=>actualPerformerId(g)===p.id)).length;
+    const waterAssigned = duties.filter(d=>d.water && d.water.playerId===p.id).length;
+    const waterDone = duties.filter(d=>d.water && actualPerformerId(d.water)===p.id).length;
+    const steppedIn = duties.filter(d=>
+      d.groundSetup.some(g=>g.substituteId===p.id) || (d.water && d.water.substituteId===p.id)
+    ).length;
+    if(gsAssigned===0 && waterAssigned===0 && steppedIn===0) return;
+    h += `<tr><td class="name">${p.name}</td><td>${gsAssigned}</td><td>${gsDone}</td><td>${waterAssigned}</td><td>${waterDone}</td><td>${steppedIn}</td></tr>`;
+  });
+  el.innerHTML = h + '</table>';
+}
 
 window.deleteSelection = async function(id){
   selections = selections.filter(s=>s.id!==id);
@@ -1072,6 +1236,7 @@ window.renderPlayerProfile = function(playerId){
 function renderAll(){
   renderDashboard(); renderRoster(); renderMatchChecklist(); renderMatchLog();
   renderAvailChecklist(); renderRotationTable(); renderSelectionLog();
+  renderDutyPickers(); renderDutiesLog(); renderDutiesFairness();
   renderSeasonSelect(); renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
   renderProfileSelect();
 }
