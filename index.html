@@ -262,6 +262,14 @@
           <div class="field"><label>Notes</label><textarea id="mNotes" rows="2" style="width:100%"></textarea></div>
         </div>
         <div class="card">
+          <h3>Link to Pre-Match Records (optional)</h3>
+          <div class="sub" style="margin-bottom:10px">Only shows Selection/Duties records that haven't been linked to a match yet — the list stays short as you keep these up to date.</div>
+          <div class="row">
+            <div class="field"><label>Selection Record</label><select id="linkSelectionId"><option value="">— none —</option></select></div>
+            <div class="field"><label>Duties Record</label><select id="linkDutiesId"><option value="">— none —</option></select></div>
+          </div>
+        </div>
+        <div class="card">
           <h3>Who Played?</h3>
           <div class="checklist" id="matchPlayerChecklist"></div>
           <button class="btn outline small" onclick="buildPerfTable()">Build Scorecard Table Below</button>
@@ -506,6 +514,20 @@ function renderRoster(){
 }
 
 /* ---------------- ADD MATCH ---------------- */
+function renderMatchLinkPickers(){
+  const selEl = document.getElementById('linkSelectionId');
+  const dutyEl = document.getElementById('linkDutiesId');
+  if(selEl){
+    const pending = selections.filter(s=>!s.matchId).sort((a,b)=>b.date.localeCompare(a.date));
+    selEl.innerHTML = '<option value="">— none —</option>' +
+      pending.map(s=>`<option value="${s.id}">${s.date} vs ${s.opposition} (${s.selectedXI.length} selected)</option>`).join('');
+  }
+  if(dutyEl){
+    const pending = duties.filter(d=>!d.matchId).sort((a,b)=>b.date.localeCompare(a.date));
+    dutyEl.innerHTML = '<option value="">— none —</option>' +
+      pending.map(d=>`<option value="${d.id}">${d.date} vs ${d.opposition}</option>`).join('');
+  }
+}
 function renderMatchChecklist(){
   const el = document.getElementById('matchPlayerChecklist');
   if(!players.length){ el.innerHTML = '<div class="empty">Add players first.</div>'; return; }
@@ -541,6 +563,7 @@ window.saveMatch = async function(){
   const date = document.getElementById('mDate').value;
   const opp = document.getElementById('mOpp').value.trim();
   if(!date || !opp){ toast('Enter date and opposition'); return; }
+  const newMatchId = uid();
   const rows = document.querySelectorAll('#perfTable tr[data-pid]');
   const performances = [];
   rows.forEach(r=>{
@@ -553,7 +576,7 @@ window.saveMatch = async function(){
     });
   });
   matches.push({
-    id: uid(), date, opposition: opp,
+    id: newMatchId, date, opposition: opp,
     season: document.getElementById('mSeason').value.trim() || null,
     ground: document.getElementById('mGround').value.trim(),
     pitchType: document.getElementById('mPitch').value,
@@ -564,9 +587,23 @@ window.saveMatch = async function(){
     notes: document.getElementById('mNotes').value.trim(),
     performances
   });
+  const linkSelId = document.getElementById('linkSelectionId').value;
+  const linkDutyId = document.getElementById('linkDutiesId').value;
+  let selectionsSaveNeeded = false, dutiesSaveNeeded = false;
+  if(linkSelId){
+    const s = selections.find(x=>x.id===linkSelId);
+    if(s){ s.matchId = newMatchId; selectionsSaveNeeded = true; }
+  }
+  if(linkDutyId){
+    const d = duties.find(x=>x.id===linkDutyId);
+    if(d){ d.matchId = newMatchId; dutiesSaveNeeded = true; }
+  }
   await saveMatches();
+  if(selectionsSaveNeeded) await saveSelections();
+  if(dutiesSaveNeeded) await saveDuties();
   document.getElementById('addMatchMsg').textContent = 'Saved match vs '+opp+' on '+date;
   ['mDate','mOpp','mGround','mOurScore','mTheirScore','mNotes','mSeason'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('linkSelectionId').value=''; document.getElementById('linkDutiesId').value='';
   document.getElementById('perfCard').style.display='none';
   document.querySelectorAll('.mplayer').forEach(c=>c.checked=false);
   renderAll();
@@ -580,14 +617,18 @@ window.deleteMatch = async function(id){
 function renderMatchLog(){
   const el = document.getElementById('matchLogTable');
   if(!matches.length){ el.innerHTML = '<div class="empty">No matches logged yet.</div>'; return; }
-  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Ground</th><th>Result</th><th>Score</th><th></th></tr>';
+  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Ground</th><th>Result</th><th>Score</th><th>Selection Logged?</th><th>Duties Logged?</th><th></th></tr>';
   matches.slice().sort((a,b)=>b.date.localeCompare(a.date)).forEach(m=>{
     const pillClass = m.result==='Win'?'win':(m.result==='Loss'?'loss':'tie');
+    const hasSelection = selections.some(s=> (s.matchId===m.id) || matchKey(s.date,s.opposition)===matchKey(m.date,m.opposition));
+    const hasDuty = duties.some(d=> (d.matchId===m.id) || matchKey(d.date,d.opposition)===matchKey(m.date,m.opposition));
     h += `<tr><td>${m.date}</td><td class="name">${m.opposition}</td><td>${m.ground||'—'}</td>
       <td><span class="pill ${pillClass}">${m.result}</span></td><td>${m.ourScore||'—'} vs ${m.theirScore||'—'}</td>
+      <td>${hasSelection ? '✓ Yes' : '<span style="color:var(--muted)">No</span>'}</td>
+      <td>${hasDuty ? '✓ Yes' : '<span style="color:var(--muted)">No</span>'}</td>
       <td><button class="btn danger small" onclick="deleteMatch('${m.id}')">Delete</button></td></tr>`;
   });
-  el.innerHTML = h + '</table>';
+  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">"Logged?" checks for a Selection/Duties record with the exact same Date + Opposition text as this match.</div>';
 }
 
 /* ---------------- SELECTION ---------------- */
@@ -612,7 +653,7 @@ window.saveSelection = async function(){
   const sel = Array.from(document.querySelectorAll('.selplayer:checked')).map(c=>c.value);
   if(!date || !opp){ toast('Enter date and opposition'); return; }
   if(sel.length>11){ toast('Selected XI has more than 11 players'); return; }
-  selections.push({ id:uid(), date, opposition:opp, available:avail, selectedXI:sel, notes: document.getElementById('sNotes').value.trim() });
+  selections.push({ id:uid(), date, opposition:opp, available:avail, selectedXI:sel, notes: document.getElementById('sNotes').value.trim(), matchId:null });
   await saveSelections();
   ['sDate','sOpp','sNotes'].forEach(id=>document.getElementById(id).value='');
   renderAll();
@@ -748,7 +789,8 @@ window.saveDuty = async function(){
   duties.push({
     id: uid(), date, opposition: opp,
     groundSetup: gsIds.map(id=>({playerId:id, done:false, substituteId:null})),
-    water: waterId ? {playerId:waterId, done:false, substituteId:null} : null
+    water: waterId ? {playerId:waterId, done:false, substituteId:null} : null,
+    matchId: null
   });
   await saveDuties();
   document.getElementById('dDate').value=''; document.getElementById('dOpp').value='';
@@ -784,11 +826,21 @@ window.deleteDuty = async function(id){
   duties = duties.filter(d=>d.id!==id);
   await saveDuties(); renderAll();
 };
+function matchKey(dateStr, oppStr){
+  return (dateStr||'').trim() + '|' + (oppStr||'').trim().toLowerCase();
+}
+function findLinkedMatch(rec){
+  if(rec.matchId){
+    const m = matches.find(x=>x.id===rec.matchId);
+    if(m) return m;
+  }
+  return matches.find(m => matchKey(m.date, m.opposition) === matchKey(rec.date, rec.opposition));
+}
 function playerName(id){ const p = players.find(x=>x.id===id); return p ? p.name : 'Unknown'; }
 function renderDutiesLog(){
   const el = document.getElementById('dutiesLog');
   if(!duties.length){ el.innerHTML = '<div class="empty">No duty records yet.</div>'; return; }
-  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Ground Setup</th><th>Water</th><th></th></tr>';
+  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Ground Setup</th><th>Water</th><th>Match Status</th><th></th></tr>';
   duties.slice().sort((a,b)=>b.date.localeCompare(a.date)).forEach(d=>{
     const gsHtml = d.groundSetup.map(g=>{
       const otherOptions = players.filter(p=>p.id!==g.playerId)
@@ -815,10 +867,14 @@ function renderDutiesLog(){
         </select>
       </div>`;
     }
-    h += `<tr><td>${d.date}</td><td class="name">${d.opposition}</td><td>${gsHtml||'—'}</td><td>${waterHtml}</td>
+    const linked = findLinkedMatch(d);
+    const statusHtml = linked
+      ? `<span class="pill ${linked.result==='Win'?'win':(linked.result==='Loss'?'loss':'tie')}">Linked — ${linked.result}</span>`
+      : `<span class="pill" style="background:#eee;color:var(--muted)">Awaiting match entry</span>`;
+    h += `<tr><td>${d.date}</td><td class="name">${d.opposition}</td><td>${gsHtml||'—'}</td><td>${waterHtml}</td><td>${statusHtml}</td>
       <td><button class="btn danger small" onclick="deleteDuty('${d.id}')">Delete</button></td></tr>`;
   });
-  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">If someone other than the assigned person actually did the duty, pick "Done by [name] instead" — that person gets credit in the fairness table below, not the person originally assigned.</div>';
+  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">If someone other than the assigned person actually did the duty, pick "Done by [name] instead" — that person gets credit in the fairness table below. "Linked" means a Match Log entry exists with the exact same Date + Opposition.</div>';
 }
 function renderDutiesFairness(){
   const el = document.getElementById('dutiesFairnessTable');
@@ -859,13 +915,17 @@ function renderRotationTable(){
 function renderSelectionLog(){
   const el = document.getElementById('selectionLog');
   if(!selections.length){ el.innerHTML = '<div class="empty">No selection records yet.</div>'; return; }
-  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Available</th><th>Selected</th><th>Notes</th><th></th></tr>';
+  let h = '<table><tr><th>Date</th><th>Opposition</th><th>Available</th><th>Selected</th><th>Match Status</th><th>Notes</th><th></th></tr>';
   selections.slice().sort((a,b)=>b.date.localeCompare(a.date)).forEach(s=>{
-    h += `<tr><td>${s.date}</td><td class="name">${s.opposition}</td><td>${s.available.length}</td><td>${s.selectedXI.length}</td>
+    const linked = findLinkedMatch(s);
+    const statusHtml = linked
+      ? `<span class="pill ${linked.result==='Win'?'win':(linked.result==='Loss'?'loss':'tie')}">Linked — ${linked.result}</span>`
+      : `<span class="pill" style="background:#eee;color:var(--muted)">Awaiting match entry</span>`;
+    h += `<tr><td>${s.date}</td><td class="name">${s.opposition}</td><td>${s.available.length}</td><td>${s.selectedXI.length}</td><td>${statusHtml}</td>
       <td style="font-family:'Inter',sans-serif">${s.notes||'—'}</td>
       <td><button class="btn danger small" onclick="deleteSelection('${s.id}')">Delete</button></td></tr>`;
   });
-  el.innerHTML = h + '</table>';
+  el.innerHTML = h + '</table><div class="sub" style="margin-top:10px;margin-bottom:0">"Linked" means a Match Log entry exists with the exact same Date + Opposition. If it says "Awaiting" for a match you know you\'ve already logged, check for a typo or date mismatch between the two.</div>';
 }
 
 /* ---------------- STATS ENGINE ---------------- */
@@ -1234,7 +1294,7 @@ window.renderPlayerProfile = function(playerId){
 };
 
 function renderAll(){
-  renderDashboard(); renderRoster(); renderMatchChecklist(); renderMatchLog();
+  renderDashboard(); renderRoster(); renderMatchChecklist(); renderMatchLinkPickers(); renderMatchLog();
   renderAvailChecklist(); renderRotationTable(); renderSelectionLog();
   renderDutyPickers(); renderDutiesLog(); renderDutiesFairness();
   renderSeasonSelect(); renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis();
