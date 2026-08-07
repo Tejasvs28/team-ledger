@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vikrant Cricket &mdash; Availability</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pitch:#010f34; --cream:#F2EFE6; --card:#FAFAF8; --ink:#0B1526;
+    --amber:#F6B10C; --line:#D9D4C4; --win:#2D6A4F; --loss:#9E2A2B; --muted:#5C5F6B;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:'Inter',sans-serif;display:flex;justify-content:center;min-height:100vh;padding:24px 16px;}
+  h1,h2,h3{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.02em;}
+  .wrap{width:100%;max-width:440px;}
+  .header{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+  .header h1{font-size:20px;margin:0;color:var(--pitch);}
+  .header .sub{font-size:11px;color:var(--amber);letter-spacing:0.1em;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px;margin-bottom:16px;}
+  .match-title{font-size:22px;color:var(--pitch);margin:0 0 4px 0;}
+  .match-date{color:var(--muted);font-size:14px;margin-bottom:16px;}
+  .time-block{display:flex;gap:20px;margin-bottom:18px;padding:12px 14px;background:#fff;border:1px solid var(--line);border-radius:6px;}
+  .time-label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:2px;}
+  .time-value{display:block;font-family:'Oswald',sans-serif;font-size:18px;color:var(--pitch);}
+  label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);display:block;margin-bottom:6px;}
+  select{width:100%;padding:12px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:16px;color:var(--ink);margin-bottom:18px;}
+  .status-btns{display:flex;flex-direction:column;gap:10px;}
+  button.statusbtn{
+    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.06em;font-size:15px;
+    padding:14px;border-radius:6px;cursor:pointer;border:2px solid transparent;background:#fff;color:var(--ink);
+  }
+  button.statusbtn.available{border-color:var(--win);}
+  button.statusbtn.available:hover, button.statusbtn.available.selected{background:var(--win);color:#fff;}
+  button.statusbtn.maybe{border-color:var(--amber);}
+  button.statusbtn.maybe:hover, button.statusbtn.maybe.selected{background:var(--amber);color:var(--ink);}
+  button.statusbtn.unavailable{border-color:var(--loss);}
+  button.statusbtn.unavailable:hover, button.statusbtn.unavailable.selected{background:var(--loss);color:#fff;}
+  button.statusbtn:disabled{opacity:0.5;cursor:not-allowed;}
+  .empty{color:var(--muted);text-align:center;padding:30px 10px;}
+  .confirm{text-align:center;padding:20px 10px;}
+  .confirm .big{font-size:40px;margin-bottom:6px;}
+  .tally{margin-top:16px;font-size:13px;}
+  .tally .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);}
+  .closed-banner{background:#eee;color:var(--muted);padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:14px;text-align:center;}
+  .error{color:var(--loss);text-align:center;padding:30px 10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <h1>VIKRANT</h1>
+    <span class="sub">AVAILABILITY</span>
+  </div>
+  <div id="content" class="card"><div class="empty">Loading…</div></div>
+</div>
+
+<script type="module">
+const firebaseConfig = {
+  apiKey: "AIzaSyDWR5cP1fA-YSUF7LxIW-f_EQedTEX_qww",
+  authDomain: "vikrant-cricket.firebaseapp.com",
+  projectId: "vikrant-cricket",
+  storageBucket: "vikrant-cricket.firebasestorage.app",
+  messagingSenderId: "143147101163",
+  appId: "1:143147101163:web:764f1c2b4065f392c207ae"
+};
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const COLLECTION = 'cricbay_team';
+
+const params = new URLSearchParams(location.search);
+const pollId = params.get('poll');
+const contentEl = document.getElementById('content');
+
+function playerNameFrom(players, id){
+  const p = players.find(x=>x.id===id);
+  return p ? p.name : 'Unknown';
+}
+
+function formatTime12h(t){
+  if(!t) return null;
+  const [h,m] = t.split(':').map(Number);
+  const period = h>=12 ? 'PM' : 'AM';
+  const h12 = ((h+11)%12)+1;
+  return `${h12}:${String(m).padStart(2,'0')} ${period}`;
+}
+
+function renderTally(poll, players){
+  const avail = poll.responses.filter(r=>r.status==='available');
+  const maybe = poll.responses.filter(r=>r.status==='maybe');
+  const unavail = poll.responses.filter(r=>r.status==='unavailable');
+  return `<div class="tally">
+    <div class="row"><span>Available (${avail.length})</span><span style="text-align:right;max-width:60%">${avail.map(r=>playerNameFrom(players,r.playerId)).join(', ')||'—'}</span></div>
+    <div class="row"><span>Maybe (${maybe.length})</span><span style="text-align:right;max-width:60%">${maybe.map(r=>playerNameFrom(players,r.playerId)).join(', ')||'—'}</span></div>
+    <div class="row"><span>Not available (${unavail.length})</span><span style="text-align:right;max-width:60%">${unavail.map(r=>playerNameFrom(players,r.playerId)).join(', ')||'—'}</span></div>
+  </div>`;
+}
+
+async function main(){
+  if(!pollId){
+    contentEl.innerHTML = '<div class="error">No poll specified. Ask for the correct link.</div>';
+    return;
+  }
+
+  let players = [], polls = [], settings = {};
+  try{
+    const pDoc = await getDoc(doc(db, COLLECTION, 'players'));
+    players = pDoc.exists() ? pDoc.data().list : [];
+  }catch(e){}
+  try{
+    const plDoc = await getDoc(doc(db, COLLECTION, 'polls'));
+    polls = plDoc.exists() ? plDoc.data().list : [];
+  }catch(e){}
+  try{
+    const sDoc = await getDoc(doc(db, COLLECTION, 'settings'));
+    settings = sDoc.exists() ? sDoc.data() : {};
+  }catch(e){}
+
+  const poll = polls.find(p=>p.id===pollId);
+  if(!poll){
+    contentEl.innerHTML = '<div class="error">This poll could not be found. It may have been deleted.</div>';
+    return;
+  }
+  if(!settings.pollEndpoint){
+    contentEl.innerHTML = '<div class="error">This poll isn\'t fully set up yet (missing endpoint). Let the coach know.</div>';
+    return;
+  }
+
+  let selectedStatus = null;
+
+  function render(){
+    const respondedIds = new Set(poll.responses.map(r=>r.playerId));
+    const closedBanner = !poll.active ? '<div class="closed-banner">This poll is closed — responses are no longer being accepted.</div>' : '';
+    const timeBlock = (poll.reportingTime || poll.matchTime) ? `<div class="time-block">
+        ${poll.reportingTime ? `<div><span class="time-label">Report</span><span class="time-value">${formatTime12h(poll.reportingTime)}</span></div>` : ''}
+        ${poll.matchTime ? `<div><span class="time-label">Match Start</span><span class="time-value">${formatTime12h(poll.matchTime)}</span></div>` : ''}
+      </div>` : '';
+    contentEl.innerHTML = `
+      ${closedBanner}
+      <div class="match-title">vs ${poll.opposition}</div>
+      <div class="match-date">${poll.date}</div>
+      ${timeBlock}
+      <label>Your Name</label>
+      <select id="playerSelect" ${!poll.active ? 'disabled' : ''}>
+        <option value="">— choose your name —</option>
+        ${players.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name}${respondedIds.has(p.id)?' (already responded)':''}</option>`).join('')}
+      </select>
+      <label>Your Availability</label>
+      <div class="status-btns">
+        <button class="statusbtn available" data-status="available" ${!poll.active?'disabled':''}>Available</button>
+        <button class="statusbtn maybe" data-status="maybe" ${!poll.active?'disabled':''}>Maybe</button>
+        <button class="statusbtn unavailable" data-status="unavailable" ${!poll.active?'disabled':''}>Not Available</button>
+      </div>
+      ${renderTally(poll, players)}
+    `;
+    document.querySelectorAll('.statusbtn').forEach(btn=>{
+      btn.addEventListener('click', ()=>submit(btn.dataset.status));
+    });
+  }
+
+  async function submit(status){
+    const playerId = document.getElementById('playerSelect').value;
+    if(!playerId){ alert('Pick your name first'); return; }
+    document.querySelectorAll('.statusbtn').forEach(b=>b.disabled = true);
+    try{
+      const resp = await fetch(settings.pollEndpoint, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ pollId, playerId, status })
+      });
+      const data = await resp.json();
+      if(!resp.ok){
+        alert('Error: ' + (data.error || resp.statusText));
+        document.querySelectorAll('.statusbtn').forEach(b=>b.disabled = false);
+        return;
+      }
+      const p = players.find(x=>x.id===playerId);
+      contentEl.innerHTML = `<div class="confirm">
+        <div class="big">✓</div>
+        <div>Thanks, ${p ? p.name : ''}! You're marked as <strong>${status==='available'?'Available':status==='maybe'?'Maybe':'Not Available'}</strong> for vs ${poll.opposition} (${poll.date}).</div>
+      </div>`;
+    }catch(e){
+      alert("Couldn't submit — check your connection and try again.");
+      document.querySelectorAll('.statusbtn').forEach(b=>b.disabled = false);
+    }
+  }
+
+  render();
+}
+
+main();
+</script>
+</body>
+</html>
