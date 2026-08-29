@@ -628,6 +628,16 @@
           <div id="importMsg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
         </div>
         <div class="card">
+          <h3>Rename / Merge Season</h3>
+          <div class="sub" style="margin-bottom:10px">Fix a typo, or merge two labels that are really the same season (e.g. a scorecard's printed tournament name vs. what you actually call it) — every match tagged with "From" gets relabeled to "To" in one go. Every season-based filter in the app (Analysis, MVP, Dashboard, Player Profiles) picks this up automatically since they all match on the exact season string.</div>
+          <div class="row">
+            <div class="field"><label>From Season</label><select id="renameSeasonFrom"></select></div>
+            <div class="field"><label>To Season</label><input type="text" id="renameSeasonTo" list="renameSeasonToList" placeholder="Type new name or pick an existing one"><datalist id="renameSeasonToList"></datalist></div>
+          </div>
+          <button class="btn amber" onclick="renameSeason()">Rename / Merge</button>
+          <div id="renameSeasonMsg" style="margin-top:8px;font-size:12px;color:var(--muted)"></div>
+        </div>
+        <div class="card">
           <h3>Danger Zone</h3>
           <button class="btn danger" onclick="clearAllData()">Clear All Data</button>
         </div>
@@ -3354,6 +3364,32 @@ function copyToClipboard(text, label){
     document.execCommand('copy'); document.body.removeChild(ta); toast(label+' copied');
   });
 }
+function renderRenameSeasonPickers(){
+  const fromSel = document.getElementById('renameSeasonFrom');
+  const toList = document.getElementById('renameSeasonToList');
+  if(!fromSel) return;
+  const seasons = getDistinctSeasons();
+  const current = fromSel.value;
+  fromSel.innerHTML = seasons.map(s=>`<option value="${s}">${s} (${matches.filter(m=>getSeasonLabel(m)===s).length} matches)</option>`).join('');
+  if(seasons.includes(current)) fromSel.value = current;
+  if(toList) toList.innerHTML = seasons.map(s=>`<option value="${s}"></option>`).join('');
+}
+window.renameSeason = async function(){
+  const from = document.getElementById('renameSeasonFrom').value;
+  const to = document.getElementById('renameSeasonTo').value.trim();
+  const msgEl = document.getElementById('renameSeasonMsg');
+  if(!from || !to){ toast('Pick a From season and enter a To season'); return; }
+  if(from === to){ toast('From and To are already the same'); return; }
+  const affected = matches.filter(m=>getSeasonLabel(m)===from);
+  if(!affected.length){ msgEl.textContent = 'No matches found with that season.'; return; }
+  if(!confirm(`Relabel ${affected.length} match(es) from "${from}" to "${to}"? This cannot be undone (though you can rename back the same way).`)) return;
+  affected.forEach(m=>{ m.season = to; });
+  await saveMatches();
+  document.getElementById('renameSeasonTo').value = '';
+  renderAll();
+  msgEl.textContent = `Done — ${affected.length} match(es) relabeled to "${to}".`;
+  toast(`Relabeled ${affected.length} match(es)`);
+};
 window.exportJSON = function(){ copyToClipboard(JSON.stringify({players,matches,selections}, null, 2), 'Full data JSON'); };
 window.exportCSVBatting = function(){
   let csv = 'Player,Innings,Runs,Average,StrikeRate,Highest,Fifties,Boundary%\n';
@@ -4079,6 +4115,7 @@ function renderAll(){
   renderPredictTab();
   renderSeasonSelect(); renderBattingAnalysis(); renderBestPositionAnalysis(); renderBowlingAnalysis(); renderFieldingAnalysis(); renderPartnershipAnalysis();
   renderProfileSelect(); renderMVPSeasonSelect(); renderMVPTab();
+  renderRenameSeasonPickers();
 }
 </script>
 </body>
